@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heroes Roster - PredictDL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Space+Grotesk:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+        
+        :root { 
+            --primary: #00d48a; 
+            --soul-amber: #f59e0b;
+            --deadlock-dark: #0c0d10;
+        }
+        body { 
+            font-family: 'Space Grotesk', system-ui, sans-serif; 
+            background-color: var(--deadlock-dark);
+        }
+        .logo-font { 
+            font-family: 'Cinzel', serif; 
+            letter-spacing: 0.05em;
+        }
+        .mono-font {
+            font-family: 'Share Tech Mono', monospace;
+        }
+        
+        .player-bg {
+            background: linear-gradient(180deg, rgba(12, 13, 16, 0.75) 0%, rgba(20, 21, 26, 0.92) 50%, rgba(12, 13, 16, 0.98) 100%),
+                        url('/static/images/background.gif') center/cover no-repeat fixed;
+            min-height: 100vh;
+        }
+
+        .deadlock-panel { 
+            background: linear-gradient(135deg, rgba(24, 26, 32, 0.9) 0%, rgba(16, 18, 22, 0.95) 100%); 
+            backdrop-filter: blur(16px);
+            border: 2px solid rgba(245, 158, 11, 0.15);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6), 0 10px 30px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+        
+        .deadlock-panel::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; width: 10px; height: 10px;
+            border-top: 2px solid var(--soul-amber); border-left: 2px solid var(--soul-amber);
+        }
+        .deadlock-panel::after {
+            content: '';
+            position: absolute;
+            bottom: -2px; right: -2px; width: 10px; height: 10px;
+            border-bottom: 2px solid #00d48a; border-right: 2px solid #00d48a;
+        }
+
+        .hero-card {
+            border: 1px solid rgba(120, 113, 108, 0.3);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .hero-card:hover {
+            transform: scale(1.02) translateY(-4px);
+            border-color: rgba(245, 158, 11, 0.5);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 158, 11, 0.12);
+        }
+    </style>
+</head>
+<body class="player-bg text-stone-300 tracking-wide selection:bg-amber-500/30">
+
+    <!-- Unified Nav Section -->
+    <nav class="bg-[#0a0b0d]/90 backdrop-blur-md border-b-2 border-amber-500/10 sticky top-0 z-50 px-4">
+        <div class="max-w-7xl mx-auto py-3 flex items-center justify-between">
+            <a href="/" class="flex items-center gap-x-3 group">
+                <img src="/static/images/deadlock.png" alt="Deadlock Logo"
+                     class="w-9 h-9 object-contain brightness-90 group-hover:scale-105 group-hover:brightness-100 transition-all"
+                     onerror="this.src='/static/images/unknown.png'">
+                <div>
+                    <span class="text-2xl font-bold logo-font text-stone-100">PREDICT</span>
+                    <span class="text-2xl font-bold logo-font text-amber-500">DL</span>
+                </div>
+            </a>
+            
+            <div class="flex-1 max-w-xl mx-8 relative" id="search-container">
+                <form action="/search" method="GET" id="search-form">
+                    <div class="bg-stone-950/80 border border-stone-800 rounded-none px-5 py-2.5 flex items-center relative z-20 focus-within:border-amber-500/50 transition-colors">
+                        <i class="fa-solid fa-magnifying-glass text-stone-500 text-xs mr-3"></i>
+                        <input type="text" name="q" id="search-input" placeholder="LOCATING PLAYERS.."
+                               class="flex-1 bg-transparent border-0 focus:ring-0 text-xs tracking-widest outline-none text-white uppercase font-mono" autocomplete="off">
+                    </div>
+                </form>
+            </div>
+
+            <div class="flex items-center gap-x-6 text-xs uppercase font-semibold tracking-widest">
+                <a href="/leaderboard" class="text-stone-400 hover:text-amber-500 transition-colors">Leaderboards</a>
+                <a href="/heroes" class="text-amber-500 transition-colors">Heroes</a>
+                <a href="/meta" class="text-stone-400 hover:text-amber-500 transition-colors">Meta</a>
+                <a href="/stats" class="text-stone-400 hover:text-amber-500 transition-colors">Stats</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-12 relative z-10">
+        
+        <div class="deadlock-panel flex flex-col items-center justify-center text-center gap-4 mb-12 p-8 shadow-2xl relative z-50">
+            <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-users text-amber-500 text-3xl shadow-[0_0_20px_rgba(245,158,11,0.3)]"></i>
+                <h1 class="text-4xl font-bold logo-font text-white tracking-widest">HEROES ROSTER</h1>
+            </div>
+            <p class="text-stone-400 text-xs font-mono tracking-wider uppercase mt-2 max-w-2xl">
+                // SELECT AN OPERATOR TO EXPLORE THEIR BASE ATTRIBUTES, SIGNATURE TOOLKIT, AND ADVANCED PLAYER STATISTICS.
+            </p>
+        </div>
+
+        {% set active_heroes = [
+            {'name': 'Abrams', 'traits': ['Brawler', 'Tank', 'Front-Line']},
+            {'name': 'Bebop', 'traits': ['Combo-Heavy', 'Hook', 'Bombs']},
+            {'name': 'Billy', 'traits': ['Chaotic', 'Offensive', 'Brawler']},
+            {'name': 'Calico', 'traits': ['Mobile', 'Slippery', 'Assassin']},
+            {'name': 'Celeste', 'traits': ['Dazzling', 'Disruptor', 'Performer']},
+            {'name': 'Doorman', 'traits': ['Spellcaster', 'Map Control', 'Portals']},
+            {'name': 'Drifter', 'traits': ['Bloodthirsty', 'Single-Target', 'Ganker']},
+            {'name': 'Dynamo', 'traits': ['Support', 'Initiator', 'Crowd Control']},
+            {'name': 'Graves', 'traits': ['Area-Denial', 'Necromancer', 'Undead']},
+            {'name': 'Grey Talon', 'traits': ['Precision', 'Hunter', 'Long-Range']},
+            {'name': 'Haze', 'traits': ['Stealthy', 'Hit-And-Run', 'Carry']},
+            {'name': 'Holliday', 'traits': ['Mobile', 'Rolling', 'Cowgirl']},
+            {'name': 'Infernus', 'traits': ['Explosive', 'Burn-Damage', 'Pyro']},
+            {'name': 'Ivy', 'traits': ['Disruptor', 'Support', 'Team-Up']},
+            {'name': 'Kelvin', 'traits': ['Explorer', 'Protector', 'Ice-Healing']},
+            {'name': 'Lady Geist', 'traits': ['High-Risk', 'Self-Damage', 'Lifesteal']},
+            {'name': 'Lash', 'traits': ['Arrogant', 'High-Flying', 'Initiator']},
+            {'name': 'McGinnis', 'traits': ['Inventor', 'Support', 'Turrets']},
+            {'name': 'Mina', 'traits': ['Nimble', 'Vexing', 'Harasser']},
+            {'name': 'Mirage', 'traits': ['Focused', 'Traveling', 'Bodyguard']},
+            {'name': 'Mo & Krill', 'traits': ['Tag-Team', 'Initiator', 'Burrower']},
+            {'name': 'Paige', 'traits': ['Helpful', 'Booksmart', 'Protector']},
+            {'name': 'Paradox', 'traits': ['Tactician', 'Disruption', 'Swaps']},
+            {'name': 'Pocket', 'traits': ['Trickster', 'Burst', 'Frog-Themed']},
+            {'name': 'Rem', 'traits': ['Tiny', 'Disruptor', 'Elusive']},
+            {'name': 'Seven', 'traits': ['Area-Denial', 'Powerhouse', 'Voltage']},
+            {'name': 'Shiv', 'traits': ['Bleeding', 'Rage-Filled', 'Brawler']},
+            {'name': 'Silver', 'traits': ['Feral', 'Shapeshifter', 'Beast']},
+            {'name': 'Sinclair', 'traits': ['Versatile', 'Copycat', 'Trickster']},
+            {'name': 'Venator', 'traits': ['Tactical', 'Arms Expert', 'Hunter']},
+            {'name': 'Victor', 'traits': ['Resilient', 'Hard-To-Kill', 'Brawler']},
+            {'name': 'Vindicta', 'traits': ['Sniper', 'Soaring', 'Burst']},
+            {'name': 'Viscous', 'traits': ['Evasive', 'Disruptor', 'Gooey']},
+            {'name': 'Vyper', 'traits': ['Slippery', 'Gunner', 'Agile']},
+            {'name': 'Warden', 'traits': ['Stalwart', 'Defender', 'Order']},
+            {'name': 'Wraith', 'traits': ['Lethal', 'Stylish', 'Carry']},
+            {'name': 'Yamato', 'traits': ['Dual-Wield', 'Assassin', 'Samurai']}
+        ] %}
+
+        <!-- Hero Grid Gallery -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+            {% for hero in active_heroes %}
+            <a href="/heroes/{{ hero.name | urlencode }}" class="hero-card group relative bg-stone-900 overflow-hidden shadow-xl rounded-none">
+                <div class="aspect-[3/4] bg-stone-950 relative">
+                    <!-- Wiki Card Image Implementation -->
+                    <img src="https://deadlock.wiki/images/{{ hero.name | replace(' ', '_') }}_card.png" 
+                         alt="{{ hero.name }}" 
+                         class="w-full h-full object-cover grayscale-[0.2] brightness-[0.85] group-hover:grayscale-0 group-hover:brightness-100 group-hover:scale-105 transition-all duration-500" 
+                         onerror="this.src='https://deadlock.wiki/images/{{ hero.name | replace(' ', '_') }}_select_background.png';">
+                    
+                    <!-- Atmospheric Gradient Overlay -->
+                    <div class="absolute inset-0 bg-gradient-to-t from-[#0c0d10] via-[#0c0d10]/40 to-transparent opacity-95 group-hover:opacity-85 transition-opacity"></div>
+                    
+                    <!-- Detail Layout Overlay -->
+                    <div class="absolute inset-0 p-4 flex flex-col justify-end border-b-2 border-transparent group-hover:border-amber-500 transition-colors">
+                        <div class="flex items-center gap-2 mb-1">
+                            <img src="https://deadlock.wiki/images/thumb/{{ hero.name | replace(' ', '_') }}_Web.png/40px-{{ hero.name | replace(' ', '_') }}_Web.png" 
+                                 class="w-5 h-5 object-contain border border-stone-800 bg-stone-950 p-0.5"
+                                 onerror="this.style.display='none';">
+                            <h2 class="text-lg font-bold text-white drop-shadow-md logo-font tracking-widest uppercase">{{ hero.name }}</h2>
+                        </div>
+                        
+                        <div class="flex flex-wrap gap-1 mt-1">
+                            {% for trait in hero.traits %}
+                                <span class="bg-stone-950/90 border border-stone-800 text-stone-400 text-[8px] px-1.5 py-0.5 font-mono uppercase tracking-widest group-hover:border-amber-500/30 group-hover:text-amber-400 transition-colors">{{ trait }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Match Preview - PredictDL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    <link rel="icon" type="image/png" href="/static/images/deadlock.png">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Space+Grotesk:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+        
+        :root { 
+            --primary: #00d48a; 
+            --soul-amber: #f59e0b;
+            --deadlock-dark: #0c0d10;
+        }
+        body { 
+            font-family: 'Space Grotesk', system-ui, sans-serif; 
+            background-color: var(--deadlock-dark);
+        }
+        .logo-font { 
+            font-family: 'Cinzel', serif; 
+            letter-spacing: 0.05em;
+        }
+        .mono-font {
+            font-family: 'Share Tech Mono', monospace;
+        }
+        
+        .player-bg {
+            background: linear-gradient(180deg, rgba(12, 13, 16, 0.85) 0%, rgba(20, 21, 26, 0.95) 50%, rgba(12, 13, 16, 0.98) 100%),
+                        radial-gradient(circle at 50% 20%, rgba(0, 212, 138, 0.05) 0%, transparent 50%);
+            min-height: 100vh;
+        }
+
+        .deadlock-panel { 
+            background: linear-gradient(135deg, rgba(24, 26, 32, 0.9) 0%, rgba(16, 18, 22, 0.95) 100%); 
+            backdrop-filter: blur(16px);
+            border: 2px solid rgba(245, 158, 11, 0.15);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6), 0 10px 30px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+        
+        .deadlock-panel::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; width: 10px; height: 10px;
+            border-top: 2px solid var(--soul-amber); border-left: 2px solid var(--soul-amber);
+        }
+        .deadlock-panel::after {
+            content: '';
+            position: absolute;
+            bottom: -2px; right: -2px; width: 10px; height: 10px;
+            border-bottom: 2px solid #00d48a; border-right: 2px solid #00d48a;
+        }
+
+        /* Bloom / Glow Effects for bright elements */
+        .bloom-amber {
+            filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.7));
+        }
+        .bloom-emerald {
+            filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.7));
+        }
+        .bloom-blue {
+            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.7));
+        }
+        .glow-box-amber {
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.4), inset 0 0 10px rgba(245, 158, 11, 0.2);
+        }
+        .glow-box-emerald {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4), inset 0 0 10px rgba(16, 18, 22, 0.2);
+        }
+        .glow-box-blue {
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4), inset 0 0 10px rgba(59, 130, 246, 0.2);
+        }
+
+        .player-row { transition: all 0.2s ease; border-bottom: 1px solid rgba(63, 63, 70, 0.2); }
+        .player-row:hover { background: rgba(255, 255, 255, 0.03); transform: scale(1.002); }
+
+        .item-frame {
+            position: relative;
+            transition: transform 0.15s ease;
+        }
+        .item-frame:hover { transform: translateY(-2px); }
+        
+        .nw-bar-bg { background: #12141a; height: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
+        .nw-bar { height: 4px; }
+    </style>
+</head>
+<body class="player-bg text-zinc-300 tracking-wide selection:bg-amber-500/30">
+
+    <!-- NAVIGATION -->
+    <nav class="bg-[#0a0b0d]/90 backdrop-blur-md border-b-2 border-amber-500/10 sticky top-0 z-50 px-4">
+        <div class="max-w-7xl mx-auto py-3 flex items-center justify-between">
+            <a href="#" class="flex items-center gap-x-3 group">
+                <div class="w-9 h-9 bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 font-bold logo-font">DL</div>
+                <div>
+                    <span class="text-2xl font-bold logo-font text-stone-100">PREDICT</span>
+                    <span class="text-2xl font-bold logo-font text-amber-500">DL</span>
+                </div>
+            </a>
+            
+            <div class="flex-1 max-w-xl mx-8 relative">
+                <div class="bg-stone-950/80 border border-stone-800 rounded-none px-5 py-2.5 flex items-center relative z-20">
+                    <i class="fa-solid fa-magnifying-glass text-stone-500 text-xs mr-3"></i>
+                    <input type="text" placeholder="SEARCH ACCOUNT (STEAM ID/USERNAME/STEAM ACCOUNT LINK)..."
+                           class="flex-1 bg-transparent border-0 focus:ring-0 text-xs tracking-widest outline-none text-white uppercase font-mono" readonly>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-x-6 text-xs uppercase font-semibold tracking-widest">
+                <span class="text-emerald-400 font-mono flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> LIVE PREVIEW MODE
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8 relative z-10">
+
+        <!-- LIVE MATCH HEADER & METRICS -->
+        <div class="deadlock-panel p-6 mb-8 flex flex-col gap-6">
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-stone-800/80 pb-6 gap-4">
+                <div>
+                    <span class="text-[10px] text-emerald-400 font-mono tracking-widest uppercase font-bold bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 bloom-emerald">LIVE SIMULATION</span>
+                    <h1 class="text-3xl font-black logo-font tracking-widest text-white mt-4">MATCH PREVIEW ANALYSIS</h1>
+                </div>
+                <div class="flex items-center gap-4 text-xs font-mono">
+                    <div class="bg-stone-950 px-4 py-2 border border-stone-800 text-stone-400">
+                        STATUS: <span class="text-emerald-400 font-bold">IN-PROGRESS (18:42)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PREDICTION & MOMENTUM BARS SECTION -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-stone-950/60 p-5 border border-stone-800/80">
+                <!-- Win Prediction Bar -->
+                <div>
+                    <div class="flex justify-between items-center text-xs font-mono mb-2">
+                        <span class="text-amber-500 font-bold tracking-wider">TEAM AMBER: <strong class="text-white text-sm">64%</strong></span>
+                        <span class="text-blue-400 font-bold tracking-wider">TEAM SAPPHIRE: <strong class="text-white text-sm">36%</strong></span>
+                    </div>
+                    <div class="h-3 w-full bg-stone-900 border border-stone-800 flex overflow-hidden relative glow-box-amber">
+                        <div class="bg-gradient-to-r from-amber-600 to-amber-400 h-full transition-all duration-500" style="width: 64%;"></div>
+                        <div class="bg-gradient-to-r from-blue-500 to-blue-600 h-full transition-all duration-500" style="width: 36%;"></div>
+                    </div>
+                    <div class="text-[10px] text-stone-500 font-mono mt-1 flex justify-between uppercase">
+                        <span>Model Confidence: High</span>
+                        <span>Win Prediction</span>
+                    </div>
+                </div>
+
+                <!-- Team Momentum Bar -->
+                <div>
+                    <div class="flex justify-between items-center text-xs font-mono mb-2">
+                        <span class="text-emerald-400 font-bold tracking-wider">AMBER MOMENTUM: <strong class="text-white text-sm">+58 pts</strong></span>
+                        <span class="text-rose-400 font-bold tracking-wider">SAPPHIRE MOMENTUM: <strong class="text-white text-sm">-22 pts</strong></span>
+                    </div>
+                    <div class="h-3 w-full bg-stone-900 border border-stone-800 flex overflow-hidden relative glow-box-emerald">
+                        <div class="bg-gradient-to-r from-emerald-600 to-emerald-400 h-full transition-all duration-500 bloom-emerald" style="width: 72%;"></div>
+                        <div class="bg-gradient-to-r from-rose-500 to-rose-600 h-full transition-all duration-500" style="width: 28%;"></div>
+                    </div>
+                    <div class="text-[10px] text-stone-500 font-mono mt-1 flex justify-between uppercase">
+                        <span>Map Control / Net Worth Velocity</span>
+                        <span>Live Trend</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TEAM TABLES (5 v 5) -->
+        <!-- TEAM AMBER -->
+        <div class="mb-10">
+            <div class="deadlock-panel overflow-hidden panel-win">
+                <div class="px-6 py-4 flex flex-wrap items-center justify-between border-b border-stone-800/80 bg-stone-950/60">
+                    <div class="flex items-center gap-4">
+                        <span class="text-xl font-bold logo-font tracking-widest text-amber-400 bloom-amber">TEAM AMBER</span>
+                        <span class="text-[10px] font-bold tracking-widest px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/30 mono-font">FAVORITED</span>
+                    </div>
+                    <div class="text-[10px] font-mono text-stone-400 flex gap-4 uppercase tracking-widest bg-[#0a0b0d] px-4 py-2 border border-stone-800">
+                        <span>TOTAL SOULS: <strong class="text-amber-400 text-xs">48.2K</strong></span>
+                        <span class="text-stone-700">|</span>
+                        <span>K: <strong class="text-stone-200 text-xs">22</strong></span>
+                        <span class="text-stone-700">/</span>
+                        <span>D: <strong class="text-red-400 text-xs">11</strong></span>
+                        <span class="text-stone-700">/</span>
+                        <span>A: <strong class="text-blue-400 text-xs">34</strong></span>
+                    </div>
+                </div>
+
+                <div class="bg-[#0a0b0d]/40 overflow-x-auto">
+                    <table class="w-full text-sm text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-stone-800/60 text-stone-400 mono-font text-[10px] uppercase tracking-widest bg-stone-950/80">
+                                <th class="px-4 py-3 font-normal w-64">Player / Hero</th>
+                                <th class="text-center px-2 py-3 font-normal w-10">K</th>
+                                <th class="text-center px-2 py-3 font-normal w-10">D</th>
+                                <th class="text-center px-2 py-3 font-normal w-10">A</th>
+                                <th class="text-right px-3 py-3 font-normal w-32">Souls</th>
+                                <th class="text-right px-3 py-3 font-normal w-24">Live PR Δ</th>
+                                <th class="text-right px-4 py-3 font-normal w-32 text-amber-500/80">Obj Dmg</th>
+                                <th class="text-left px-5 py-3 font-normal">Active Items</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Player 1 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-amber-500 logo-font">IN</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Infernus</div>
+                                            <div class="text-[10px] text-amber-400 mono-font">Infernus • MMR 3,420</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">8</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">2</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">5</td>
+                                <td class="px-3 py-3 text-right mono-font text-amber-400 font-bold">12.4K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/20">+14</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">4,210</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-orange-500/40 bg-orange-950/20 p-0.5 item-frame"><div class="w-full h-full bg-amber-500/20"></div></div>
+                                        <div class="aspect-square border border-emerald-500/40 bg-emerald-950/20 p-0.5 item-frame"><div class="w-full h-full bg-emerald-500/20"></div></div>
+                                        <div class="aspect-square border border-purple-500/40 bg-purple-950/20 p-0.5 item-frame"><div class="w-full h-full bg-purple-500/20"></div></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 2 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-emerald-400 logo-font">VN</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Vindicta</div>
+                                            <div class="text-[10px] text-emerald-400 mono-font">Vindicta • MMR 3,290</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">6</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">3</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">8</td>
+                                <td class="px-3 py-3 text-right mono-font text-amber-400 font-bold">10.8K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/20">+9</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">1,850</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-orange-500/40 bg-orange-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-purple-500/40 bg-purple-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 3 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-purple-400 logo-font">LB</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Lash</div>
+                                            <div class="text-[10px] text-purple-400 mono-font">Lash • MMR 3,110</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">4</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">4</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">10</td>
+                                <td class="px-3 py-3 text-right mono-font text-amber-400 font-bold">9.5K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/20">+4</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">3,100</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-emerald-500/40 bg-emerald-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 4 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-blue-400 logo-font">AB</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Abrams</div>
+                                            <div class="text-[10px] text-blue-400 mono-font">Abrams • MMR 3,050</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">3</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">1</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">6</td>
+                                <td class="px-3 py-3 text-right mono-font text-amber-400 font-bold">9.1K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/20">+7</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">2,900</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-emerald-500/40 bg-emerald-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-orange-500/40 bg-orange-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 5 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-amber-500 logo-font">MC</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">McGinnis</div>
+                                            <div class="text-[10px] text-amber-500 mono-font">McGinnis • MMR 2,980</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">1</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">3</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">5</td>
+                                <td class="px-3 py-3 text-right mono-font text-amber-400 font-bold">8.4K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-stone-400 font-bold bg-stone-800 px-2 py-0.5 border border-stone-700">0</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">6,540</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-orange-500/40 bg-orange-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TEAM SAPPHIRE -->
+        <div class="mb-10">
+            <div class="deadlock-panel overflow-hidden panel-loss">
+                <div class="px-6 py-4 flex flex-wrap items-center justify-between border-b border-stone-800/80 bg-stone-950/60">
+                    <div class="flex items-center gap-4">
+                        <span class="text-xl font-bold logo-font tracking-widest text-blue-400 bloom-blue">TEAM SAPPHIRE</span>
+                        <span class="text-[10px] font-bold tracking-widest px-2 py-0.5 bg-blue-500/10 text-blue-400 border border-blue-500/30 mono-font">UNDERDOG</span>
+                    </div>
+                    <div class="text-[10px] font-mono text-stone-400 flex gap-4 uppercase tracking-widest bg-[#0a0b0d] px-4 py-2 border border-stone-800">
+                        <span>TOTAL SOULS: <strong class="text-blue-400 text-xs">41.6K</strong></span>
+                        <span class="text-stone-700">|</span>
+                        <span>K: <strong class="text-stone-200 text-xs">11</strong></span>
+                        <span class="text-stone-700">/</span>
+                        <span>D: <strong class="text-red-400 text-xs">22</strong></span>
+                        <span class="text-stone-700">/</span>
+                        <span>A: <strong class="text-blue-400 text-xs">14</strong></span>
+                    </div>
+                </div>
+
+                <div class="bg-[#0a0b0d]/40 overflow-x-auto">
+                    <table class="w-full text-sm text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-stone-800/60 text-stone-400 mono-font text-[10px] uppercase tracking-widest bg-stone-950/80">
+                                <th class="px-4 py-3 font-normal w-64">Player / Hero</th>
+                                <th class="text-center px-2 py-3 font-normal w-10">K</th>
+                                <th class="text-center px-2 py-3 font-normal w-10">D</th>
+                                <th class="text-center px-2 py-3 font-normal w-10">A</th>
+                                <th class="text-right px-3 py-3 font-normal w-32">Souls</th>
+                                <th class="text-right px-3 py-3 font-normal w-24">Live PR Δ</th>
+                                <th class="text-right px-4 py-3 font-normal w-32 text-amber-500/80">Obj Dmg</th>
+                                <th class="text-left px-5 py-3 font-normal">Active Items</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Player 1 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-sky-400 logo-font">DY</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Dynamo</div>
+                                            <div class="text-[10px] text-sky-400 mono-font">Dynamo • MMR 3,350</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">4</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">4</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">5</td>
+                                <td class="px-3 py-3 text-right mono-font text-blue-400 font-bold">10.1K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-red-400 font-bold bg-red-500/10 px-2 py-0.5 border border-red-500/20">-3</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">1,200</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-purple-500/40 bg-purple-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 2 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-red-400 logo-font">HD</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Haze</div>
+                                            <div class="text-[10px] text-red-400 mono-font">Haze • MMR 3,210</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">3</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">5</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">2</td>
+                                <td class="px-3 py-3 text-right mono-font text-blue-400 font-bold">9.2K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-red-400 font-bold bg-red-500/10 px-2 py-0.5 border border-red-500/20">-6</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">850</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-orange-500/40 bg-orange-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 3 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-yellow-500 logo-font">PR</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Paradox</div>
+                                            <div class="text-[10px] text-yellow-500 mono-font">Paradox • MMR 3,150</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">2</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">4</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">4</td>
+                                <td class="px-3 py-3 text-right mono-font text-blue-400 font-bold">8.6K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-red-400 font-bold bg-red-500/10 px-2 py-0.5 border border-red-500/20">-4</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">920</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-purple-500/40 bg-purple-950/20 p-0.5 item-frame"></div>
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 4 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-teal-400 logo-font">WK</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">TimeToChangeTheWorld</div>
+                                            <div class="text-[10px] text-teal-400 mono-font">Warden • MMR 3,900</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">4</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">0</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">2</td>
+                                <td class="px-3 py-3 text-right mono-font text-blue-400 font-bold">7.5K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 border border-emerald-500/20">+9</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">400</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Player 5 -->
+                            <tr class="player-row">
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-stone-950 border border-stone-700 flex items-center justify-center font-bold text-indigo-400 logo-font">KN</div>
+                                        <div>
+                                            <div class="font-bold text-stone-200 text-sm">Kelvin</div>
+                                            <div class="text-[10px] text-indigo-400 mono-font">Kelvin • MMR 2,850</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-white">1</td>
+                                <td class="px-2 py-3 text-center mono-font font-bold text-red-400">4</td>
+                                <td class="px-2 py-3 text-center mono-font text-blue-400">1</td>
+                                <td class="px-3 py-3 text-right mono-font text-blue-400 font-bold">7.2K</td>
+                                <td class="px-3 py-3 text-right mono-font"><span class="text-red-400 font-bold bg-red-500/10 px-2 py-0.5 border border-red-500/20">-7</span></td>
+                                <td class="px-4 py-3 text-right mono-font text-amber-400/80">300</td>
+                                <td class="px-5 py-3">
+                                    <div class="grid grid-cols-6 gap-1 w-full max-w-[180px]">
+                                        <div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div><div class="aspect-square border border-stone-800 bg-stone-950"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3 mt-6 text-[10px] text-stone-500 bg-[#0a0b0d] border border-stone-800/80 p-3 justify-center mono-font tracking-widest uppercase">
+            <i class="fa-solid fa-bolt text-amber-500"></i>
+            <span>PREDICTIVE ENGINE: ACTIVE • REFRESHING IN REAL-TIME</span>
+        </div>
+    </div>
+</body>
+</html>
