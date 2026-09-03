@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-    <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y67EW00YWS"></script>
     <script>
     window.dataLayer = window.dataLayer || [];
@@ -26,10 +25,8 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
-    <!-- Standard Favicon -->
     <link rel="icon" type="image/png" href="/static/images/deadlock.png">
 
-    <!-- Optional: High-resolution icon for Apple devices -->
     <link rel="apple-touch-icon" href="/static/images/deadlock.png">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -127,6 +124,47 @@
             transition: transform 0.15s ease;
         }
         .item-frame:hover { transform: translateY(-2px); }
+
+        /* S-rank Mastery bloom effect */
+        .mastery-rank-badge { position: relative; }
+        .mastery-rank-glow {
+            --glow-color: #00d48a;
+            animation: mastery-bloom 2.2s ease-in-out infinite;
+        }
+
+        /* Rank progress bar (Matchmaking Update: current badge -> RP 0-1000 -> next badge) */
+        .rank-progress-track {
+            background: repeating-linear-gradient(
+                90deg,
+                rgba(255,255,255,0.04) 0px, rgba(255,255,255,0.04) 1px,
+                transparent 1px, transparent 10%
+            ), #0a0b0e;
+        }
+        .rank-progress-fill {
+            background: linear-gradient(90deg, #059669 0%, #34d399 100%);
+            box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);
+            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .rank-badge-current { filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.35)); }
+        .rank-badge-next { opacity: 0.55; filter: grayscale(0.3); }
+        .mastery-rank-glow::before {
+            content: '';
+            position: absolute;
+            inset: -6px;
+            background: radial-gradient(circle, var(--glow-color) 0%, transparent 70%);
+            opacity: 0.55;
+            filter: blur(6px);
+            z-index: -1;
+            animation: mastery-bloom-pulse 2.2s ease-in-out infinite;
+        }
+        @keyframes mastery-bloom {
+            0%, 100% { box-shadow: 0 0 8px var(--glow-color), 0 0 2px var(--glow-color); }
+            50%      { box-shadow: 0 0 20px var(--glow-color), 0 0 6px var(--glow-color); }
+        }
+        @keyframes mastery-bloom-pulse {
+            0%, 100% { opacity: 0.35; transform: scale(0.9); }
+            50%      { opacity: 0.75; transform: scale(1.15); }
+        }
     </style>
 </head>
 <body class="player-bg text-zinc-300 tracking-wide selection:bg-amber-500/30">
@@ -300,10 +338,31 @@
             </div>
             {% endif %}
 
-            <div class="w-32 h-32 bg-stone-900 relative p-1 border-2 border-stone-700 flex-shrink-0 z-10 shadow-2xl">
-                <div class="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-amber-500"></div>
-                <div class="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-emerald-400"></div>
-                <img src="{{ player.avatarfull }}" alt="{{ player.personaname }}" class="w-full h-full object-cover" onerror="this.src='/static/images/unknown.png'">
+            <div class="flex flex-col items-center gap-3 flex-shrink-0 z-10">
+                <div class="w-32 h-32 bg-stone-900 relative p-1 border-2 border-stone-700 shadow-2xl">
+                    <div class="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-amber-500"></div>
+                    <div class="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-emerald-400"></div>
+                    <img src="{{ player.avatarfull }}" alt="{{ player.personaname }}" class="w-full h-full object-cover" onerror="this.src='/static/images/unknown.png'">
+                </div>
+
+                <div class="flex flex-col items-center bg-stone-950/90 border border-stone-800 px-3 py-2 w-full text-center">
+                    <div class="text-emerald-400 font-bold tracking-widest text-lg mono-font group/stat relative cursor-help flex items-center justify-center">
+                        {% if pr_data.overall_pr is defined and pr_data.overall_pr > 0 %}
+                            {{ pr_data.overall_pr | round | int }}
+                            <span class="text-[10px] text-emerald-500/70 font-sans tracking-normal ml-1 flex items-center gap-1">
+                                PR
+                            </span>
+                        {% else %}
+                            <span class="text-[10px] flex items-center gap-1">
+                                CALIBRATING...
+                            </span>
+                        {% endif %}
+                        
+                        <div class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-48 p-2 bg-[#0d0e12] border border-emerald-500/30 text-[10px] leading-tight text-stone-300 shadow-xl opacity-0 group-hover/stat:opacity-100 pointer-events-none transition-opacity z-50 normal-case font-sans tracking-normal">
+                            A score that represents average player impact/performance in a game using a custom algorithm.
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="flex-1 w-full relative z-10 text-center md:text-left">
@@ -312,53 +371,74 @@
                         <h1 class="text-4xl font-bold logo-font text-white tracking-wide drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)]">{{ player.personaname }}</h1>
                         
                         <div class="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-3">
-                            {% if rank_image %}
-                            <div class="relative group p-1 bg-stone-950 border border-stone-800">
-                                <img src="{{ rank_image if rank_image.startswith('/') else url_for('static', filename=rank_image) }}" alt="Rank Badge" class="w-12 h-12 object-contain" onerror="this.src='/static/images/unknown.png'">
-                            </div>
-                            {% endif %}
-                            
-                            <div>
-                                <div class="text-emerald-400 font-bold tracking-widest text-xl mono-font group/stat relative cursor-help flex items-center w-fit">
-                                    {% if pr_data.overall_pr is defined and pr_data.overall_pr > 0 %}
-                                        {{ pr_data.overall_pr | round | int }} 
-                                        <span class="text-xs text-emerald-500/70 font-sans tracking-normal ml-2 flex items-center gap-1.5">
-                                            PR Rating
-                                            <i class="fa-solid fa-circle-info text-[10px] text-emerald-600/70 group-hover/stat:text-emerald-400 transition-colors"></i>
-                                        </span>
-                                    {% else %}
-                                        <span class="flex items-center gap-1.5">
-                                            CALIBRATING INDEX...
-                                            <i class="fa-solid fa-circle-info text-[10px] text-emerald-600/70 group-hover/stat:text-emerald-400 transition-colors"></i>
-                                        </span>
-                                    {% endif %}
-
-                                    <div class="absolute left-0 bottom-full mb-1 w-48 p-2 bg-[#0d0e12] border border-emerald-500/30 text-[10px] leading-tight text-stone-300 shadow-xl opacity-0 group-hover/stat:opacity-100 pointer-events-none transition-opacity z-50 normal-case font-sans tracking-normal">
-                                        A score that represents average player impact/performance in a game using a custom algorithm.
-                                    </div>
-                                </div>
-                                
-                                <div class="flex flex-wrap justify-center md:justify-start gap-2 mt-2">
-                                    {% if player_tags %}
-                                        {% for tag in player_tags %}
-                                            {% if tag.text and tag.color %}
-                                            <div class="relative group cursor-help">
-                                                <span class="text-[10px] font-bold px-2 py-0.5 border font-mono tracking-wider rounded-none {{ tag.color }}">
-                                                    // {{ tag.text }}
-                                                </span>
-                                                <div class="absolute bottom-full left-1/2 -translate-x-1/2 md:left-0 md:translate-x-0 mb-2 w-64 p-3 bg-[#0d0e12] border-2 border-amber-500/30 rounded-none text-xs text-stone-300 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 font-sans normal-case leading-relaxed" data-html2canvas-ignore>
-                                                    <div class="font-bold text-white logo-font mb-1 border-b border-stone-800 pb-1 text-amber-400">{{ tag.text }}</div>
-                                                    {{ tag.hovertext }}
-                                                </div>
+                            <div class="flex flex-wrap justify-center md:justify-start gap-2">
+                                {% if player_tags %}
+                                    {% for tag in player_tags %}
+                                        {% if tag.text and tag.color %}
+                                        <div class="relative group cursor-help">
+                                            <span class="text-[10px] font-bold px-2 py-0.5 border font-mono tracking-wider rounded-none {{ tag.color }}">
+                                                // {{ tag.text }}
+                                            </span>
+                                            <div class="absolute bottom-full left-1/2 -translate-x-1/2 md:left-0 md:translate-x-0 mb-2 w-64 p-3 bg-[#0d0e12] border-2 border-amber-500/30 rounded-none text-xs text-stone-300 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 font-sans normal-case leading-relaxed" data-html2canvas-ignore>
+                                                <div class="font-bold text-white logo-font mb-1 border-b border-stone-800 pb-1 text-amber-400">{{ tag.text }}</div>
+                                                {{ tag.hovertext }}
                                             </div>
-                                            {% endif %}
-                                        {% endfor %}
-                                    {% else %}
-                                        <span class="text-xs text-stone-500 font-mono italic">NO TAG IDENTIFIERS RECORDED</span>
-                                    {% endif %}
-                                </div>
+                                        </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    <span class="text-xs text-stone-500 font-mono italic">NO TAG IDENTIFIERS RECORDED</span>
+                                {% endif %}
                             </div>
                         </div>
+
+                        {% if rank_widget %}
+                        <div class="mt-3 flex justify-center md:justify-start">
+                            {% if rank_widget.is_unranked %}
+                            <div class="inline-flex items-center gap-2 bg-stone-950/80 border border-stone-800 px-3 py-2">
+                                <img src="{{ rank_widget.current_badge_image }}" alt="Obscurus" class="w-10 h-10 object-contain" onerror="this.src='/static/images/unknown.png'">
+                                <span class="text-[10px] font-mono text-stone-500 uppercase tracking-widest">{{ "In Placement" if rank_widget.in_placement else "Unranked" }}</span>
+                            </div>
+                            {% else %}
+                            <div class="inline-flex items-center gap-3 bg-stone-950/80 border border-stone-800 px-3 py-2.5 w-full max-w-sm">
+                                <div class="flex flex-col items-center flex-shrink-0" title="{{ rank_widget.current_tier_label }}">
+                                    <img src="{{ rank_widget.current_badge_image }}" alt="{{ rank_widget.current_tier_label }}" class="rank-badge-current w-11 h-11 object-contain" onerror="this.src='/static/images/unknown.png'">
+                                    <span class="text-[8px] font-mono text-emerald-400/90 uppercase tracking-wider mt-1 whitespace-nowrap">{{ rank_widget.current_tier_label }}</span>
+                                </div>
+
+                                <div class="flex-1 min-w-0 flex flex-col gap-1">
+                                    <div class="flex justify-between items-baseline text-[9px] font-mono text-stone-500 uppercase tracking-widest">
+                                        <span>RP</span>
+                                        {% if rank_widget.rp_known %}
+                                        <span class="text-emerald-400">{{ rank_widget.rp }} / {{ rank_widget.max_rp }}</span>
+                                        {% else %}
+                                        <span class="text-stone-600" title="Not enough recent ranked matches to calculate live RP yet">Unknown</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="rank-progress-track h-2 w-full border border-stone-800 relative overflow-hidden">
+                                        {% if rank_widget.rp_known %}
+                                        <div class="rank-progress-fill h-full" style="width: {{ rank_widget.rp_percent }}%;"></div>
+                                        {% else %}
+                                        <div class="h-full w-full bg-stone-800/40"></div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                <div class="flex flex-col items-center flex-shrink-0" title="{{ rank_widget.next_tier_label }}">
+                                    {% if rank_widget.next_badge_image %}
+                                        <img src="{{ rank_widget.next_badge_image }}" alt="{{ rank_widget.next_tier_label }}" class="rank-badge-next w-9 h-9 object-contain" onerror="this.src='/static/images/unknown.png'">
+                                        <span class="text-[8px] font-mono text-stone-500 uppercase tracking-wider mt-1 whitespace-nowrap">{{ rank_widget.next_tier_label }}</span>
+                                    {% else %}
+                                        <div class="w-9 h-9 flex items-center justify-center">
+                                            <i class="fa-solid fa-crown text-amber-400 text-sm"></i>
+                                        </div>
+                                        <span class="text-[8px] font-mono text-amber-400 uppercase tracking-wider mt-1 whitespace-nowrap">Max Rank</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </div>
 
                     <div class="flex flex-col items-center md:items-end gap-2" data-html2canvas-ignore>
@@ -447,17 +527,40 @@
                             {% endif %}
                         </h3>
                         <div class="flex gap-1 bg-stone-950 p-1 border border-stone-800 text-[10px] uppercase font-mono tracking-widest">
-                            <button onclick="filterMatches('all')"   id="tab-all"  class="tab-btn active px-3 py-1 font-medium transition-all border-amber-500/20 bg-amber-500/10 text-amber-500">All</button>
-                            <button onclick="filterMatches('win')"   id="tab-win"  class="tab-btn px-3 py-1 font-medium transition-all text-emerald-500">Wins</button>
-                            <button onclick="filterMatches('loss')"  id="tab-loss" class="tab-btn px-3 py-1 font-medium transition-all text-red-400">Losses</button>
+                            <button onclick="filterMatches('all')"          id="tab-all"          class="tab-btn active px-3 py-1 font-medium transition-all border-amber-500/20 bg-amber-500/10 text-amber-500">All</button>
+                            <button onclick="filterMatches('ranked')"       id="tab-ranked"       class="tab-btn px-3 py-1 font-medium transition-all text-amber-400">Ranked</button>
+                            <button onclick="filterMatches('unranked')"     id="tab-unranked"     class="tab-btn px-3 py-1 font-medium transition-all text-sky-400">Unranked</button>
+                            <button onclick="filterMatches('street-brawl')" id="tab-street-brawl" class="tab-btn px-3 py-1 font-medium transition-all text-fuchsia-400">Street Brawl</button>
                         </div>
                     </div>
 
                     <div class="space-y-4" id="match-list">
                         {% if match_history %}
+                            {% set ns_match = namespace(divider_placed=false) %}
                             {% for match in match_history %}
                             {% set won = match.get('won') == true %}
-                            <div class="match-item-wrapper" data-result="{{ 'win' if won else 'loss' }}" style="display: none;">
+                            {% set is_after_update = false %}
+                            {% if match.start_time is defined and match.start_time >= 1785369600 %}
+                                {% set is_after_update = true %}
+                            {% elif match.date_display and ('Aug' in match.date_display or 'Jul 30' in match.date_display or 'Jul 31' in match.date_display or 'ago' in match.date_display or 'today' in match.date_display or 'yesterday' in match.date_display or 'hr' in match.date_display or 'min' in match.date_display) %}
+                                {% set is_after_update = true %}
+                            {% endif %}
+                            
+                            {% set mode_label = match.get('mode_label') or 'Unranked' %}
+                            {% set mode_slug = mode_label | lower | replace(' ', '-') %}
+                            {% set mode_badge_class =
+                                'bg-amber-500/10 text-amber-400 border-amber-500/30' if mode_label == 'Ranked' else
+                                'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/30' if mode_label == 'Street Brawl' else
+                                'bg-sky-500/10 text-sky-400 border-sky-500/30' %}
+                            <div class="match-item-wrapper" data-result="{{ 'win' if won else 'loss' }}" data-mode="{{ mode_slug }}" style="display: none;">
+                                
+                                {% if not is_after_update and not ns_match.divider_placed %}
+                                <div class="w-full py-1.5 mb-4 bg-amber-500/10 border-y border-amber-500/30 text-amber-500 text-center text-[10px] font-mono tracking-widest uppercase shadow-sm font-bold">
+                                    // (DEADLOCK MATCHMAKING UPDATE) //
+                                </div>
+                                {% set ns_match.divider_placed = true %}
+                                {% endif %}
+
                                 <a href="/match/{{ match.match_id }}?from={{ query }}"
                                    class="match-row group/row border border-stone-800 p-4 flex flex-col gap-3 hover:border-stone-700 transition-all block relative {{ 'win-border' if won else 'loss-border' }}">
                                     
@@ -475,6 +578,9 @@
                                                     <span class="font-bold text-base text-stone-200 logo-font">{{ match.hero_name if match.hero_name else 'Unknown Subject' }}</span>
                                                     <span class="px-2 py-0.5 text-[9px] font-bold tracking-widest font-mono {{ 'win-badge' if won else 'loss-badge' }}">
                                                         {{ 'VICTORY' if won else 'DEFEAT' }}
+                                                    </span>
+                                                    <span class="px-2 py-0.5 text-[9px] font-bold tracking-widest font-mono border {{ mode_badge_class }} uppercase">
+                                                        {{ mode_label }}
                                                     </span>
                                                 </div>
                                                 <div class="text-stone-400 text-xs mt-1.5 flex flex-wrap gap-x-3 gap-y-1 items-center font-mono">
@@ -498,10 +604,22 @@
                                                 <i class="fa-regular fa-clock text-[10px] text-amber-500/70"></i>
                                                 {{ match.get('duration_display') or match.get('match_length') or '—' }}
                                             </div>
+                                            {% if mode_label == 'Ranked' and match.get('rank_point_change') is not none %}
+                                            {% set rp = match.get('rank_point_change') %}
+                                            <div class="text-[11px] mt-1.5 px-2 py-0.5 border inline-flex items-center gap-1 font-bold {{ 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' if rp >= 0 else 'bg-red-500/10 text-red-400 border-red-500/30' }}">
+                                                <i class="fa-solid {{ 'fa-arrow-up' if rp >= 0 else 'fa-arrow-down' }} text-[9px]"></i>
+                                                {{ '+' if rp >= 0 else '' }}{{ rp }} RP
+                                            </div>
+                                            {% endif %}
+                                            {% if mode_label == 'Ranked' and match.get('is_calibration_match') %}
+                                            <div class="text-[10px] mt-1.5 px-2 py-0.5 border inline-flex items-center gap-1 font-bold bg-violet-500/10 text-violet-400 border-violet-500/30 uppercase tracking-wider">
+                                                <i class="fa-solid fa-crosshairs text-[9px]"></i>
+                                                Calibration
+                                            </div>
+                                            {% endif %}
                                         </div>
                                     </div>
 
-                                    <!-- Match Not Indexed Warning Banner -->
                                     {% if not match.is_indexed and not match.get('is_indexed') %}
                                     <div class="bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 flex items-center justify-between text-[11px] font-mono text-amber-400 my-1">
                                         <div class="flex items-center gap-2">
@@ -672,7 +790,7 @@
                                         </div>
                                         <div class="w-full bg-stone-900 rounded-none h-1 border border-stone-800">
                                             <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all"
-                                                 style="width: {{ [(ph.score * 100), 100] | min }}%"></div>
+                                                 style="width: {{ [((ph.score or 0) * 100), 100] | min }}%"></div>
                                         </div>
                                     </div>
                                     {% endif %}
@@ -687,7 +805,8 @@
         </div>
 
         <div id="tab-performance" class="player-tab-content hidden">
-            <!-- Net Wins Chart -->
+
+            <!-- NET WINS PROGRESSION -->
             <div class="deadlock-panel p-4 mb-6">
                 <h3 class="font-bold text-sm logo-font text-stone-200 mb-3 flex items-center gap-2">
                     <span class="text-amber-500">■</span> NET WINS PROGRESSION
@@ -697,7 +816,6 @@
                 </div>
             </div>
 
-            <!-- Aggregated Metric Summaries (Total Stats & Accuracy) -->
             {% if pr_data.heroes is defined and pr_data.heroes %}
             {% set total_m = pr_data.heroes | map(attribute='matches_played') | sum %}
             {% set ns = namespace(tk=0, td=0, ta=0, tnw=0, dmg=0, obj=0, acc=0, crit=0, lvl=0) %}
@@ -723,20 +841,19 @@
             {% set avg_crit = (ns.crit / total_m * 100) | round(1) if total_m > 0 else 0 %}
             {% set avg_lvl  = (ns.lvl / total_m)  | round(1) if total_m > 0 else 0 %}
 
+            <!-- TOTALS -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <!-- Total Combat Stats -->
                 <div class="bg-stone-950/80 border border-stone-800 p-4 relative">
                     <div class="absolute top-0 right-0 w-1.5 h-1.5 bg-red-500"></div>
                     <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase mb-1">// TOTAL COMBAT (K / D / A)</div>
                     <div class="text-xl font-bold mono-font text-stone-100">
-                        <span class="text-emerald-400">{{ '{:,}'.format(total_kills) }}</span> / 
-                        <span class="text-red-400">{{ '{:,}'.format(total_deaths) }}</span> / 
+                        <span class="text-emerald-400">{{ '{:,}'.format(total_kills) }}</span> /
+                        <span class="text-red-400">{{ '{:,}'.format(total_deaths) }}</span> /
                         <span class="text-sky-400">{{ '{:,}'.format(total_assists) }}</span>
                     </div>
                     <div class="text-[9px] text-stone-600 mt-2 font-mono">K/D/A Totals All Heroes</div>
                 </div>
 
-                <!-- Total Net Worth -->
                 <div class="bg-stone-950/80 border border-stone-800 p-4 relative">
                     <div class="absolute top-0 right-0 w-1.5 h-1.5 bg-amber-500"></div>
                     <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase mb-1">// TOTAL NET WORTH</div>
@@ -744,7 +861,6 @@
                     <div class="text-[9px] text-stone-600 mt-2 font-mono">Avg Ending Level: {{ avg_lvl }}</div>
                 </div>
 
-                <!-- Damage Output -->
                 <div class="bg-stone-950/80 border border-stone-800 p-4 relative">
                     <div class="absolute top-0 right-0 w-1.5 h-1.5 bg-emerald-400"></div>
                     <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase mb-1">// AVG HERO & OBJ DMG</div>
@@ -752,7 +868,6 @@
                     <div class="text-[9px] text-stone-600 mt-2 font-mono">Hero Damage / Objective Damage</div>
                 </div>
 
-                <!-- Marksmanship & Accuracy -->
                 <div class="bg-stone-950/80 border border-stone-800 p-4 relative">
                     <div class="absolute top-0 right-0 w-1.5 h-1.5 bg-sky-400"></div>
                     <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase mb-1">// MARKSMANSHIP & ACCURACY</div>
@@ -762,9 +877,69 @@
             </div>
             {% endif %}
 
-            <!-- Detailed Grid Section -->
+            <!-- PERCENTILES -->
+            {% if pr_data.heroes is defined and pr_data.heroes %}
+            <div class="deadlock-panel p-5 mb-6" id="percentile-panel">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-5 border-b border-stone-800 pb-3">
+                    <h3 class="font-bold text-lg logo-font text-stone-200 flex items-center gap-2">
+                        <span class="text-emerald-400">■</span> PERCENTILES <span class="text-stone-600 text-xs font-mono normal-case">vs global average</span>
+                    </h3>
+                    <div class="flex items-center gap-2">
+                        <label for="percentile-hero-select" class="text-[10px] font-mono uppercase tracking-widest text-stone-500">Viewing:</label>
+                        <select id="percentile-hero-select"
+                                class="bg-stone-950 border border-stone-700 text-stone-200 text-xs font-mono uppercase tracking-wider px-3 py-2 focus:outline-none focus:border-emerald-500/60 min-w-[200px]">
+                            <option value="account">Account (All Heroes)</option>
+                            {% for ph in pr_data.heroes %}
+                            {% if ph.matches_played > 0 %}
+                            <option value="{{ ph.hero_id }}">{{ ph.hero_name }} ({{ ph.matches_played }} games)</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="w-20 h-20 shrink-0 border-2 border-emerald-500/40 bg-stone-950 flex flex-col items-center justify-center relative">
+                        <span id="pctl-overall-value" class="text-2xl font-black mono-font text-emerald-400">--</span>
+                        <span class="text-[8px] font-mono uppercase tracking-widest text-stone-500">Pctl</span>
+                    </div>
+                    <div>
+                        <div id="pctl-overall-label" class="text-sm font-bold text-stone-200 font-sans">—</div>
+                        <div class="text-[11px] text-stone-500 font-mono mt-1">
+                            Better than <span id="pctl-overall-pct" class="text-emerald-400 font-bold">--%</span> of tracked players, blended across kills / deaths / assists / damage / objective damage / net worth.
+                        </div>
+                    </div>
+                </div>
+
+                <div id="pctl-bars" class="grid grid-cols-2 md:grid-cols-3 gap-4 font-mono text-xs"></div>
+
+                <p class="text-[9px] text-stone-600 mt-5 leading-relaxed">
+                    Percentiles are derived from the same z-scores used to compute PR, so they always agree with the rating above. "Deaths" is inverted — a high percentile there means dying less than most.
+                </p>
+            </div>
+
+            <script id="percentile-data" type="application/json">
+            {
+                "account": {
+                    "overall_percentile": {{ pr_data.overall_percentile | default(50) }},
+                    "stat_percentiles": {{ pr_data.stat_percentiles | default({}) | tojson }},
+                    "label": "Account &middot; All Heroes"
+                }
+                {% for ph in pr_data.heroes %}
+                {% if ph.matches_played > 0 %}
+                ,"{{ ph.hero_id }}": {
+                    "overall_percentile": {{ ph.percentile | default(50) }},
+                    "stat_percentiles": {{ ph.stat_percentiles | default({}) | tojson }},
+                    "label": {{ (ph.hero_name ~ ' &middot; ' ~ ph.matches_played ~ ' games') | tojson }}
+                }
+                {% endif %}
+                {% endfor %}
+            }
+            </script>
+            {% endif %}
+
+            <!-- METRICS / TOP HEROES / HERO RATINGS -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <!-- Account Overview Metrics -->
                 <div>
                     <h3 class="font-bold text-lg logo-column mb-4 border-b border-stone-800 pb-2 logo-font text-stone-200">
                         <span class="text-emerald-400">■</span> PERFORMANCE METRICS
@@ -803,7 +978,6 @@
                     </div>
                 </div>
 
-                <!-- Top Heroes List -->
                 <div>
                     <h3 class="font-bold text-lg logo-column mb-4 border-b border-stone-800 pb-2 logo-font text-stone-200">
                         <span class="text-amber-500">■</span> TOP HEROES
@@ -828,7 +1002,6 @@
                     </div>
                 </div>
 
-                <!-- Hero Ratings List -->
                 <div>
                     <h3 class="font-bold text-lg logo-column mb-4 border-b border-stone-800 pb-2 logo-font text-stone-200">
                         <span class="text-sky-400">■</span> HERO RATINGS
@@ -845,7 +1018,7 @@
                                 </div>
                                 <div class="w-full bg-stone-900 rounded-none h-1.5 border border-stone-800">
                                     <div class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all"
-                                         style="width: {{ [(ph.score * 100), 100] | min }}%"></div>
+                                         style="width: {{ [((ph.score or 0) * 100), 100] | min }}%"></div>
                                 </div>
                             </div>
                             {% endif %}
@@ -856,7 +1029,6 @@
                 </div>
             </div>
 
-            <!-- Granular Per-Hero PR Metrics Table -->
             {% if pr_data.heroes is defined and pr_data.heroes %}
             <div class="deadlock-panel p-6">
                 <h3 class="font-bold text-lg logo-font text-stone-200 mb-4 border-b border-stone-800 pb-2 flex items-center gap-2">
@@ -874,6 +1046,7 @@
                                 <th class="py-2 px-3 text-right">Hero DMG</th>
                                 <th class="py-2 px-3 text-right">Accuracy</th>
                                 <th class="py-2 px-3 text-right">Headshot Acc</th>
+                                <th class="py-2 px-3 text-right">Pctl</th>
                                 <th class="py-2 px-3 text-right">Hero PR</th>
                             </tr>
                         </thead>
@@ -885,14 +1058,15 @@
                                 <td class="py-2.5 px-3 text-right text-stone-300">{{ ph.matches_played }}</td>
                                 <td class="py-2.5 px-3 text-right text-emerald-400 font-bold">{{ (ph.win_rate * 100) | round(1) }}%</td>
                                 <td class="py-2.5 px-3 text-right text-stone-300">
-                                    <span class="text-emerald-400">{{ ph.total_kills | default(0) }}</span> / 
-                                    <span class="text-red-400">{{ ph.total_deaths | default(0) }}</span> / 
+                                    <span class="text-emerald-400">{{ ph.total_kills | default(0) }}</span> /
+                                    <span class="text-red-400">{{ ph.total_deaths | default(0) }}</span> /
                                     <span class="text-sky-400">{{ ph.total_assists | default(0) }}</span>
                                 </td>
                                 <td class="py-2.5 px-3 text-right text-amber-500 font-bold">{{ '{:,}'.format(ph.total_networth | default(0) | int) }}</td>
                                 <td class="py-2.5 px-3 text-right text-stone-300">{{ '{:,}'.format(ph.damage_per_match | default(0) | int) }}</td>
                                 <td class="py-2.5 px-3 text-right text-sky-400">{{ (ph.accuracy | default(0) * 100) | round(1) }}%</td>
                                 <td class="py-2.5 px-3 text-right text-amber-400">{{ (ph.headshot_acc | default(ph.crit_shot_rate) | default(0) * 100) | round(1) }}%</td>
+                                <td class="py-2.5 px-3 text-right text-emerald-400 font-bold">{{ ph.percentile | default(0) | round | int }}%</td>
                                 <td class="py-2.5 px-3 text-right text-amber-500 font-bold text-sm">{{ ph.hero_pr | round | int }} PR</td>
                             </tr>
                             {% endif %}
@@ -1115,10 +1289,11 @@
                                 <h2 class="text-2xl font-bold logo-font text-stone-100">{{ hm.hero_name }}</h2>
                                 {% endif %}
                                 <div class="flex items-center gap-2 mt-1 flex-wrap">
-                                    <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest font-mono border"
-                                          style="color: {{ hm.accent_color }}; border-color: {{ hm.accent_color }}55; background: {{ hm.accent_color }}14;">
-                                        {{ hm.mastery_tier }} MASTERY
+                                    <span class="mastery-rank-badge {{ 'mastery-rank-glow' if hm.mastery_glow }} inline-flex items-center justify-center w-8 h-8 text-base font-extrabold logo-font border"
+                                          style="color: {{ hm.accent_color }}; border-color: {{ hm.accent_color }}88; background: {{ hm.accent_color }}14; {{ '--glow-color: ' ~ hm.accent_color ~ ';' if hm.mastery_glow }}">
+                                        {{ hm.mastery_tier }}
                                     </span>
+                                    <span class="text-stone-500 text-[10px] font-mono uppercase tracking-widest">Rank</span>
                                     <span class="text-stone-500 text-[11px] font-mono">Score {{ hm.mastery_score }}</span>
                                 </div>
                             </div>
@@ -1221,47 +1396,72 @@
                     <div class="lg:col-span-4 space-y-6">
                         <div class="bg-stone-950/60 border border-stone-800 p-6">
                             <h3 class="font-bold text-sm logo-font text-stone-200 mb-4 border-b border-stone-800 pb-2 flex items-center gap-2">
-                                <span style="color: {{ hm.accent_color }};">■</span> FAVORITE TEAMMATE
+                                <span style="color: {{ hm.accent_color }};">■</span> CAREER TOTALS
                             </h3>
-                            {% if hm.favorite_teammate %}
-                            <a href="/player/{{ hm.favorite_teammate.account_id }}" class="flex items-center gap-3 bg-stone-900/50 border border-stone-800 p-3 hover:border-stone-600 transition-all group">
-                                <div class="w-10 h-10 bg-stone-950 border border-stone-700 p-0.5">
-                                    <img src="/static/{{ hm.favorite_teammate.hero_name | hero_icon }}" alt="{{ hm.favorite_teammate.hero_name }}" class="w-full h-full object-cover" onerror="this.src='/static/images/unknown.png'">
+                            {% if hm.career_totals %}
+                            <p class="text-[10px] text-stone-500 font-mono tracking-widest mb-4">Everything you've racked up on {{ hm.hero_name }}, across every tracked match.</p>
+                            <div class="grid grid-cols-2 gap-3 font-mono">
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ '{:,}'.format(hm.career_totals.kills) }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// TOTAL KILLS</div>
                                 </div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="text-stone-200 font-bold text-sm font-mono group-hover:text-white">#{{ hm.favorite_teammate.account_id }}</div>
-                                    <div class="text-[10px] text-stone-500">Usually plays {{ hm.favorite_teammate.hero_name }}</div>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ '{:,}'.format(hm.career_totals.assists) }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// TOTAL ASSISTS</div>
                                 </div>
-                                <div class="text-right">
-                                    <div class="text-sm font-bold font-mono" style="color: {{ hm.accent_color }};">{{ hm.favorite_teammate.matches }}</div>
-                                    <div class="text-[9px] text-stone-500 font-mono">GAMES</div>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ '{:,}'.format(hm.career_totals.deaths) }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// TOTAL DEATHS</div>
                                 </div>
-                            </a>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold" style="color: {{ hm.accent_color }};">{{ hm.career_totals.kda }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// CAREER KDA</div>
+                                </div>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ '{:,}'.format(hm.career_totals.damage) }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// HERO DAMAGE</div>
+                                </div>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ '{:,}'.format(hm.career_totals.objective_damage) }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// OBJ DAMAGE</div>
+                                </div>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ '{:,}'.format(hm.career_totals.souls_earned) }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// SOULS EARNED</div>
+                                </div>
+                                <div class="bg-stone-900/50 border border-stone-800 p-3">
+                                    <div class="text-lg font-bold text-stone-100">{{ hm.career_totals.hours_played }}</div>
+                                    <div class="text-[9px] text-stone-500 mt-1 tracking-widest uppercase">// HOURS PLAYED</div>
+                                </div>
+                            </div>
                             {% else %}
-                            <p class="text-stone-500 text-xs font-mono">No repeated teammates detected yet on this hero.</p>
+                            <p class="text-stone-500 text-xs font-mono">Not enough indexed matches yet for career totals.</p>
                             {% endif %}
                         </div>
 
                         <div class="bg-stone-950/60 border border-stone-800 p-6">
                             <h3 class="font-bold text-sm logo-font text-stone-200 mb-4 border-b border-stone-800 pb-2 flex items-center gap-2">
-                                <span style="color: {{ hm.accent_color }};">■</span> MOST FACED ENEMY
+                                <span style="color: {{ hm.accent_color }};">■</span> PLAYSTYLE RADAR
                             </h3>
-                            {% if hm.most_faced_enemy %}
-                            <div class="flex items-center gap-3 bg-stone-900/50 border border-stone-800 p-3">
-                                <div class="w-10 h-10 bg-stone-950 border border-stone-700 p-0.5">
-                                    <img src="/static/{{ hm.most_faced_enemy.hero_name | hero_icon }}" alt="{{ hm.most_faced_enemy.hero_name }}" class="w-full h-full object-cover" onerror="this.src='/static/images/unknown.png'">
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="text-stone-200 font-bold text-sm">{{ hm.most_faced_enemy.hero_name }}</div>
-                                    <div class="text-[10px] text-stone-500">{{ hm.most_faced_enemy.wins_against }}W against them</div>
-                                </div>
-                                <div class="text-right">
-                                    <div class="text-sm font-bold font-mono" style="color: {{ hm.accent_color }};">{{ hm.most_faced_enemy.matches }}</div>
-                                    <div class="text-[9px] text-stone-500 font-mono">GAMES</div>
-                                </div>
-                            </div>
+                            {% if hm.playstyle_radar %}
+                            <p class="text-[10px] text-stone-500 font-mono tracking-widest mb-3">Your per-minute rates on {{ hm.hero_name }}, scaled for readability.</p>
+                            <svg viewBox="0 0 200 200" class="w-full max-w-[220px] mx-auto">
+                                <polygon points="100,20 180,100 100,180 20,100" fill="none" stroke="#292524" stroke-width="1"/>
+                                <polygon points="100,40 160,100 100,160 40,100" fill="none" stroke="#292524" stroke-width="1"/>
+                                <polygon points="100,60 140,100 100,140 60,100" fill="none" stroke="#292524" stroke-width="1"/>
+                                <polygon points="100,80 120,100 100,120 80,100" fill="none" stroke="#292524" stroke-width="1"/>
+                                <line x1="100" y1="100" x2="100" y2="20" stroke="#3f3c37" stroke-width="1"/>
+                                <line x1="100" y1="100" x2="180" y2="100" stroke="#3f3c37" stroke-width="1"/>
+                                <line x1="100" y1="100" x2="100" y2="180" stroke="#3f3c37" stroke-width="1"/>
+                                <line x1="100" y1="100" x2="20" y2="100" stroke="#3f3c37" stroke-width="1"/>
+                                <polygon points="{{ hm.playstyle_radar.svg_polygon }}" fill="{{ hm.accent_color }}33" stroke="{{ hm.accent_color }}" stroke-width="2" stroke-linejoin="round"/>
+                                <text x="100" y="12" text-anchor="middle" fill="#a8a29e" font-size="9" font-family="Share Tech Mono, monospace">COMBAT</text>
+                                <text x="188" y="103" text-anchor="start" fill="#a8a29e" font-size="9" font-family="Share Tech Mono, monospace">FARM</text>
+                                <text x="100" y="195" text-anchor="middle" fill="#a8a29e" font-size="9" font-family="Share Tech Mono, monospace">OBJ</text>
+                                <text x="12" y="103" text-anchor="end" fill="#a8a29e" font-size="9" font-family="Share Tech Mono, monospace">SURVIVAL</text>
+                            </svg>
                             {% else %}
-                            <p class="text-stone-500 text-xs font-mono">No repeated opponents detected yet on this hero.</p>
+                            <p class="text-stone-500 text-xs font-mono">Not enough indexed matches yet for a playstyle read.</p>
                             {% endif %}
                         </div>
 
@@ -1428,21 +1628,26 @@
         function filterMatches(type) {
             currentMatchFilter = type;
             currentPage = 1;
-            
-            const classesToRemove = ['active', 'border-amber-500/20', 'bg-amber-500/10', 'text-amber-500', 'border-emerald-500/20', 'bg-emerald-500/10', 'text-emerald-500', 'border-red-500/20', 'bg-red-500/10', 'text-red-400'];
+
+            const tabColors = {
+                'tab-all': ['text-stone-500', 'border-amber-500/20', 'bg-amber-500/10', 'text-amber-500'],
+                'tab-ranked': ['text-amber-400', 'border-amber-500/20', 'bg-amber-500/10', 'text-amber-400'],
+                'tab-unranked': ['text-sky-400', 'border-sky-500/20', 'bg-sky-500/10', 'text-sky-400'],
+                'tab-street-brawl': ['text-fuchsia-400', 'border-fuchsia-500/20', 'bg-fuchsia-500/10', 'text-fuchsia-400'],
+            };
+
+            const classesToRemove = ['active', 'border-amber-500/20', 'bg-amber-500/10', 'text-amber-500', 'border-sky-500/20', 'bg-sky-500/10', 'text-sky-400', 'border-fuchsia-500/20', 'bg-fuchsia-500/10', 'text-fuchsia-400', 'border-emerald-500/20', 'bg-emerald-500/10', 'text-emerald-500', 'border-red-500/20', 'bg-red-500/10', 'text-red-400'];
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.remove(...classesToRemove);
-                if(btn.id === 'tab-all') btn.classList.add('text-stone-500');
-                if(btn.id === 'tab-win') btn.classList.add('text-emerald-500');
-                if(btn.id === 'tab-loss') btn.classList.add('text-red-400');
+                const inactiveColor = tabColors[btn.id] ? tabColors[btn.id][0] : null;
+                if (inactiveColor) btn.classList.add(inactiveColor);
             });
-            
+
             const activeBtn = document.getElementById('tab-' + type);
             if(activeBtn) {
                 activeBtn.classList.add('active');
-                if(type === 'all') activeBtn.classList.add('border-amber-500/20', 'bg-amber-500/10', 'text-amber-500');
-                if(type === 'win') activeBtn.classList.add('border-emerald-500/20', 'bg-emerald-500/10', 'text-emerald-500');
-                if(type === 'loss') activeBtn.classList.add('border-red-500/20', 'bg-red-500/10', 'text-red-400');
+                const activeClasses = tabColors['tab-' + type];
+                if (activeClasses) activeBtn.classList.add(activeClasses[1], activeClasses[2], activeClasses[3]);
             }
 
             updatePagination();
@@ -1457,7 +1662,7 @@
             if (!allMatchElements.length) return;
 
             const filteredMatches = allMatchElements.filter(el => {
-                return currentMatchFilter === 'all' || el.dataset.result === currentMatchFilter;
+                return currentMatchFilter === 'all' || el.dataset.mode === currentMatchFilter;
             });
 
             const totalPages = Math.ceil(filteredMatches.length / itemsPerPage) || 1;
@@ -1557,6 +1762,64 @@
             }
         }
 
+        // ── Percentiles panel (Performance tab) ──────────────────────────
+        const PERCENTILE_STAT_LABELS = {
+            kills_per_match:      { label: 'Kills',            color: '#34d399' },
+            deaths_per_match:     { label: 'Deaths (fewer = better)', color: '#f87171' },
+            assists_per_match:    { label: 'Assists',          color: '#38bdf8' },
+            damage_per_match:     { label: 'Hero Damage',      color: '#a78bfa' },
+            obj_damage_per_match: { label: 'Objective Damage', color: '#fbbf24' },
+            networth_per_match:   { label: 'Net Worth',        color: '#fb923c' },
+        };
+
+        function renderPercentileView(key) {
+            const dataEl = document.getElementById('percentile-data');
+            if (!dataEl) return;
+            let allData;
+            try { allData = JSON.parse(dataEl.textContent); } catch (e) { return; }
+
+            const entry = allData[key];
+            if (!entry) return;
+
+            const overallVal = document.getElementById('pctl-overall-value');
+            const overallPct = document.getElementById('pctl-overall-pct');
+            const overallLabel = document.getElementById('pctl-overall-label');
+            const barsContainer = document.getElementById('pctl-bars');
+            if (!overallVal || !barsContainer) return;
+
+            const pct = Math.round(entry.overall_percentile);
+            overallVal.textContent = pct;
+            if (overallPct) overallPct.textContent = pct + '%';
+            if (overallLabel) overallLabel.innerHTML = entry.label;
+
+            barsContainer.innerHTML = '';
+            const statPercentiles = entry.stat_percentiles || {};
+            Object.keys(PERCENTILE_STAT_LABELS).forEach((statKey) => {
+                if (!(statKey in statPercentiles)) return;
+                const meta = PERCENTILE_STAT_LABELS[statKey];
+                const val = Math.max(0, Math.min(100, statPercentiles[statKey]));
+
+                const box = document.createElement('div');
+                box.className = 'bg-stone-950/80 border border-stone-800 p-4 relative flex flex-col items-center justify-center text-center';
+                box.innerHTML = `
+                    <div class="absolute top-0 right-0 w-1.5 h-1.5" style="background:${meta.color}"></div>
+                    <div class="text-3xl font-black mono-font leading-none" style="color:${meta.color}">${Math.round(val)}<span class="text-xs align-top ml-0.5 text-stone-500">th</span></div>
+                    <div class="text-[9px] font-mono uppercase tracking-widest text-stone-500 mt-2">${meta.label}</div>
+                    <div class="w-full bg-stone-900 h-1.5 border border-stone-800 mt-3">
+                        <div class="h-full transition-all" style="width:${val}%; background:${meta.color};"></div>
+                    </div>
+                `;
+                barsContainer.appendChild(box);
+            });
+        }
+
+        function initPercentilePanel() {
+            const select = document.getElementById('percentile-hero-select');
+            if (!select) return;
+            select.addEventListener('change', () => renderPercentileView(select.value));
+            renderPercentileView('account');
+        }
+
         function switchMasteryHero(index) {
             document.querySelectorAll('.mastery-panel').forEach(el => el.classList.add('hidden'));
             const panel = document.getElementById('mastery-panel-' + index);
@@ -1572,6 +1835,7 @@
 
         document.addEventListener("DOMContentLoaded", function() {
             updateDeepRefreshState();
+            initPercentilePanel();
             
             allMatchElements = Array.from(document.querySelectorAll('.match-item-wrapper'));
             updatePagination();

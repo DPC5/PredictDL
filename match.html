@@ -463,6 +463,68 @@
             {% endif %}
         </div>
 
+        <!-- DEATH MAP (full width, at the bottom of the page) -->
+        <div class="mt-10">
+            <div class="deadlock-panel overflow-hidden">
+                <div class="px-6 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-stone-800/80 bg-stone-950/60">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-skull text-red-500/80"></i>
+                        <span class="text-xl font-bold logo-font tracking-widest text-white drop-shadow-[0_2px_2px_rgba(0,0,0,1)]">DEATH MAP</span>
+                        <span class="text-[9px] font-mono text-stone-500 uppercase tracking-widest bg-[#0a0b0d] border border-stone-800 px-2 py-1">{{ death_markers | length }} deaths</span>
+                    </div>
+                    <div class="flex items-center gap-4 text-[10px] font-mono uppercase tracking-widest text-stone-400">
+                        <span class="flex items-center gap-1.5"><span class="text-amber-400 font-black text-sm">✕</span> Amber death</span>
+                        <span class="flex items-center gap-1.5"><span class="text-blue-400 font-black text-sm">✕</span> Sapphire death</span>
+                    </div>
+                </div>
+
+                {% if death_markers %}
+                <div class="relative w-full bg-black select-none" style="aspect-ratio: 1 / 1; max-height: 85vh;">
+                    <img src="{{ map_image_url }}" alt="Deadlock minimap"
+                         class="absolute inset-0 w-full h-full object-cover opacity-90"
+                         onerror="this.style.display='none'">
+
+                    {% for dm in death_markers %}
+                    <div class="absolute -translate-x-1/2 -translate-y-1/2 group/death cursor-pointer z-10"
+                         style="left: {{ dm.left_pct }}%; top: {{ dm.top_pct }}%;">
+                        <span class="block text-2xl font-black leading-none select-none transition-transform group-hover/death:scale-125 drop-shadow-[0_0_4px_rgba(0,0,0,0.95)]
+                                    {% if dm.team == 0 %}text-amber-400{% else %}text-blue-400{% endif %}">✕</span>
+
+                        <!-- Tooltip: Killer (icon) | Victim (icon) [time] -->
+                        <div class="hidden group-hover/death:flex absolute bottom-full left-1/2 -translate-x-1/2 mb-2 items-center gap-2
+                                    bg-stone-950 border border-stone-700 px-2.5 py-1.5 whitespace-nowrap z-50 shadow-2xl mono-font text-[11px] pointer-events-none">
+                            <div class="flex items-center gap-1.5">
+                                <img src="{{ dm.killer_hero_icon }}" alt="{{ dm.killer_hero_name or 'Unknown' }}"
+                                     class="w-5 h-5 object-cover border border-stone-700" onerror="this.src='/static/images/unknown.png'">
+                                <span class="{% if dm.killer_team == 0 %}text-amber-400{% elif dm.killer_team == 1 %}text-blue-400{% else %}text-stone-400{% endif %} font-bold">{{ dm.killer_username }}</span>
+                            </div>
+                            <span class="text-stone-600">|</span>
+                            <div class="flex items-center gap-1.5">
+                                <img src="{{ dm.hero_icon }}" alt="{{ dm.hero_name }}"
+                                     class="w-5 h-5 object-cover border border-stone-700" onerror="this.src='/static/images/unknown.png'">
+                                <span class="{% if dm.team == 0 %}text-amber-400{% else %}text-blue-400{% endif %} font-bold">{{ dm.username }}</span>
+                            </div>
+                            <span class="text-stone-600">|</span>
+                            <span class="text-stone-300">[{{ dm.time_display }}]</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="text-[9px] font-mono text-stone-600 px-6 py-3 leading-relaxed border-t border-stone-800/60">
+                    Positions are approximate, remapped from raw match telemetry onto the map image. Hover a marker for the kill's details.
+                </p>
+                {% else %}
+                <div class="relative w-full bg-black opacity-60" style="aspect-ratio: 1 / 1; max-height: 85vh;">
+                    <img src="{{ map_image_url }}" alt="Deadlock minimap" class="absolute inset-0 w-full h-full object-cover"
+                         onerror="this.style.display='none'">
+                </div>
+                <p class="text-[10px] font-mono text-stone-500 px-6 py-4 leading-relaxed text-center">
+                    No death location data was available for this match.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
         {% endif %}
     </div>
 
