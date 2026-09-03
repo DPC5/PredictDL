@@ -1,0 +1,527 @@
+<!-- Change Log file -->
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-Y67EW00YWS"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-Y67EW00YWS');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Changelog - PredictDL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    <!-- Standard Favicon -->
+    <link rel="icon" type="image/png" href="/static/images/deadlock.png">
+    <!-- Optional: High-resolution icon for Apple devices -->
+    <link rel="apple-touch-icon" href="/static/images/deadlock.png">
+
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://predictdl.com/changelog">
+    <meta property="og:title" content="PredictDL v1.1.1 - Changelog">
+    <meta property="og:description" content="Pr calculation updates, matchmaking changes, and bug fixes.">
+    <meta property="og:image" content="https://predictdl.com/static/images/changelog.png">
+    <meta property="og:site_name" content="PredictDL">
+
+    <!-- Discord Theme Color -->
+    <meta name="theme-color" content="#f59e0b">
+
+
+    <meta name="twitter:title" content="PredictDL v1.1.1 - Changelog">
+    <meta property="og:image" content="{{ request.url_root }}static/images/changelog.png">
+    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Space+Grotesk:wght@400;500;700&family=Share+Tech+Mono&display=swap');
+        
+        :root { 
+            --primary: #00d48a; 
+            --soul-amber: #f59e0b;
+            --deadlock-dark: #0c0d10;
+        }
+        body { 
+            font-family: 'Space Grotesk', system-ui, sans-serif; 
+            background-color: var(--deadlock-dark);
+        }
+        .logo-font { 
+            font-family: 'Cinzel', serif; 
+            letter-spacing: 0.05em;
+        }
+        .mono-font {
+            font-family: 'Share Tech Mono', monospace;
+        }
+        
+        .player-bg {
+            background: linear-gradient(180deg, rgba(12, 13, 16, 0.85) 0%, rgba(20, 21, 26, 0.95) 50%, rgba(12, 13, 16, 0.98) 100%),
+                        url('/static/images/background.gif') center/cover no-repeat fixed;
+            min-height: 100vh;
+        }
+
+        .deadlock-panel { 
+            background: linear-gradient(135deg, rgba(24, 26, 32, 0.9) 0%, rgba(16, 18, 22, 0.95) 100%); 
+            backdrop-filter: blur(16px);
+            border: 2px solid rgba(245, 158, 11, 0.15);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6), 0 10px 30px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+        
+        .deadlock-panel::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; width: 10px; height: 10px;
+            border-top: 2px solid var(--soul-amber); border-left: 2px solid var(--soul-amber);
+        }
+        .deadlock-panel::after {
+            content: '';
+            position: absolute;
+            bottom: -2px; right: -2px; width: 10px; height: 10px;
+            border-bottom: 2px solid #00d48a; border-right: 2px solid #00d48a;
+        }
+
+        /* Changelog Timeline Line */
+        .timeline-line {
+            position: absolute;
+            left: 24px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: rgba(63, 63, 70, 0.3);
+            z-index: 0;
+        }
+    </style>
+</head>
+<body class="player-bg text-zinc-300 tracking-wide selection:bg-amber-500/30">
+
+    <!-- NAVIGATION (Matches Player & Match Pages) -->
+    <nav class="bg-[#0a0b0d]/90 backdrop-blur-md border-b-2 border-amber-500/10 sticky top-0 z-50 px-4">
+        <div class="max-w-7xl mx-auto py-3 flex items-center justify-between">
+            <a href="/" class="flex items-center gap-x-3 group">
+                <img src="/static/images/deadlock.png" alt="Deadlock Logo"
+                     class="w-9 h-9 object-contain brightness-90 group-hover:scale-105 group-hover:brightness-100 transition-all"
+                     onerror="this.src='/static/images/unknown.png'">
+                <div>
+                    <span class="text-2xl font-bold logo-font text-stone-100">PREDICT</span>
+                    <span class="text-2xl font-bold logo-font text-amber-500">DL</span>
+                </div>
+            </a>
+            
+            <div class="flex-1 max-w-xl mx-8 relative" id="search-container">
+                <form action="/search" method="GET" id="search-form">
+                    <div class="bg-stone-950/80 border border-stone-800 rounded-none px-5 py-2.5 flex items-center relative z-20 focus-within:border-amber-500/50 transition-colors">
+                        <i class="fa-solid fa-magnifying-glass text-stone-500 text-xs mr-3"></i>
+                        <input type="text" name="q" id="search-input" placeholder="SEARCH ACCOUNT (STEAM ID/USERNAME/STEAM ACCOUNT LINK)..."
+                               class="flex-1 bg-transparent border-0 focus:ring-0 text-xs tracking-widest outline-none text-white uppercase font-mono" autocomplete="off">
+                        <div id="search-spinner" class="hidden">
+                            <i class="fa-solid fa-circle-notch fa-spin text-amber-500"></i>
+                        </div>
+                    </div>
+                </form>
+                
+                <div id="search-dropdown" class="hidden absolute top-full left-0 right-0 mt-1 bg-[#12141a] border border-stone-800 rounded-none shadow-2xl overflow-hidden z-50">
+                    <div id="search-results" class="max-h-96 overflow-y-auto p-2 space-y-1"></div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-x-6 text-xs uppercase font-semibold tracking-widest">
+                <a href="/leaderboard" class="text-stone-400 hover:text-amber-500 transition-colors">Leaderboards</a>
+                <a href="/heroes" class="text-stone-400 hover:text-amber-500 transition-colors"></a>
+                <a href="/meta" class="text-stone-400 hover:text-amber-500 transition-colors"></a>
+                <a href="/changelog" class="text-stone-400 hover:text-amber-500 transition-colors">changelog</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CHANGELOG CONTENT -->
+    <div class="max-w-4xl mx-auto px-4 py-12 relative z-10">
+        
+        <!-- Header Panel -->
+        <div class="deadlock-panel p-8 mb-12 text-center border-amber-500/30">
+            <h1 class="text-4xl font-black logo-font tracking-widest text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                PREDICTDL <span class="text-amber-500">CHANGELOG</span>
+            </h1>
+            <p class="text-stone-400 font-mono text-sm mt-4 uppercase tracking-widest">
+                // History of all updates and changes.
+            </p>
+        </div>
+
+        <!-- Timeline Container -->
+        <div class="relative pl-12 md:pl-0">
+            <!-- Background Line -->
+            <div class="timeline-line md:left-[120px]"></div>
+
+            <div class="relative mb-12 flex flex-col md:flex-row gap-6 md:gap-12 items-start group">
+                <!-- Date/Version Indicator -->
+                <div class="absolute -left-12 md:relative md:left-0 md:w-[120px] md:text-right pt-4 z-10 flex-shrink-0">
+                    <div class="absolute left-[7px] md:left-auto md:right-[-31px] top-6 w-3 h-3 bg-amber-500 rotate-45 border border-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.5)] group-hover:scale-125 transition-transform"></div>
+                    <div class="hidden md:block">
+                        <div class="text-amber-500 font-bold logo-font text-xl">v1.1.1</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest mt-1 uppercase">Agust 19, 2026</div>
+                    </div>
+                </div>
+
+                <!-- Update Content Panel -->
+                <div class="deadlock-panel p-6 flex-1 w-full">
+                    <div class="md:hidden flex items-center justify-between border-b border-stone-800 pb-3 mb-4">
+                        <div class="text-amber-500 font-bold logo-font text-xl">v1.1.1</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase bg-stone-950 px-2 py-1 border border-stone-800">Agust 19, 2026</div>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-stone-100 logo-font mb-5">PR Update</h2>
+                    
+                    <div class="space-y-6">
+                        <!-- Changes -->
+                        <div>
+                            <h3 class="text-amber-500 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-amber-500/10 w-fit px-2 py-1 border border-amber-500/20">
+                                <i class="fa-solid fa-code-compare"></i> ADJUSTMENTS
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-amber-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Adjusted PR calculations to now rank players against global performance vs rank.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Fixes -->
+                        <div>
+                            <h3 class="text-red-400 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-red-500/10 w-fit px-2 py-1 border border-red-500/20">
+                                <i class="fa-solid fa-wrench"></i> BUG FIXES
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed errors with player refreshes.</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="relative mb-12 flex flex-col md:flex-row gap-6 md:gap-12 items-start group">
+                <!-- Date/Version Indicator -->
+                <div class="absolute -left-12 md:relative md:left-0 md:w-[120px] md:text-right pt-4 z-10 flex-shrink-0">
+                    <div class="absolute left-[7px] md:left-auto md:right-[-31px] top-6 w-3 h-3 bg-amber-500 rotate-45 border border-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.5)] group-hover:scale-125 transition-transform"></div>
+                    <div class="hidden md:block">
+                        <div class="text-amber-500 font-bold logo-font text-xl">v1.1.0</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest mt-1 uppercase">Agust 17, 2026</div>
+                    </div>
+                </div>
+
+                <!-- Update Content Panel -->
+                <div class="deadlock-panel p-6 flex-1 w-full">
+                    <div class="md:hidden flex items-center justify-between border-b border-stone-800 pb-3 mb-4">
+                        <div class="text-amber-500 font-bold logo-font text-xl">v1.1.0</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase bg-stone-950 px-2 py-1 border border-stone-800">Agust 17, 2026</div>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-stone-100 logo-font mb-5">Matchmaking Update</h2>
+                    
+                    <div class="space-y-6">
+                        <!-- Additions -->
+                        <div>
+                            <h3 class="text-emerald-400 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-emerald-500/10 w-fit px-2 py-1 border border-emerald-500/20">
+                                <i class="fa-solid fa-plus"></i> NEW FEATURES
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Masteries, the player page now has a mastery tab showing some extra information about each hero they play showing some less meta information.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added basic prediction screen showing the top matches live and predicting the outcome. This will be used to tune the prediction algorithm and improve PR ratings.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added a warning to show matches that take place after the matchmaking update.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added RP bars on the player page showing current rank in rp and progress towards the next rank.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added gamemode detection for match history | street brawl will not count for PR calculations.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Changes -->
+                        <div>
+                            <h3 class="text-amber-500 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-amber-500/10 w-fit px-2 py-1 border border-amber-500/20">
+                                <i class="fa-solid fa-code-compare"></i> ADJUSTMENTS
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-amber-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Adjusted PR calculations minorly to try to fix over inflation.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-amber-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Sped up some background processes with syncing accounts.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Fixes -->
+                        <div>
+                            <h3 class="text-red-400 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-red-500/10 w-fit px-2 py-1 border border-red-500/20">
+                                <i class="fa-solid fa-wrench"></i> BUG FIXES
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed scroll bars appearing unnecessarily.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed objective damage counting when it should not for unindexed matches.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed leaderboard display issues.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed several minor bugs.</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- Update Entry 1 -->
+            <div class="relative mb-12 flex flex-col md:flex-row gap-6 md:gap-12 items-start group">
+                <div class="absolute -left-12 md:relative md:left-0 md:w-[120px] md:text-right pt-4 z-10 flex-shrink-0">
+                    <div class="absolute left-[7px] md:left-auto md:right-[-31px] top-6 w-3 h-3 bg-stone-500 rotate-45 border border-stone-400 group-hover:scale-125 transition-transform group-hover:bg-amber-500 group-hover:border-amber-300"></div>
+                    <div class="hidden md:block">
+                        <div class="text-stone-300 font-bold logo-font text-xl group-hover:text-amber-500 transition-colors">v1.0</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest mt-1 uppercase">July 27, 2026</div>
+                    </div>
+                </div>
+
+                <div class="deadlock-panel p-6 flex-1 w-full opacity-80 hover:opacity-100 transition-opacity">
+                    <div class="md:hidden flex items-center justify-between border-b border-stone-800 pb-3 mb-4">
+                        <div class="text-stone-300 font-bold logo-font text-xl group-hover:text-amber-500 transition-colors">v1.0</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase bg-stone-950 px-2 py-1 border border-stone-800">July 27, 2026</div>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-stone-100 logo-font mb-5">Database Updates and Bug Fixes</h2>
+                    
+                    <div class="space-y-6">
+                        <!-- Additions -->
+                        <div>
+                            <h3 class="text-emerald-400 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-emerald-500/10 w-fit px-2 py-1 border border-emerald-500/20">
+                                <i class="fa-solid fa-plus"></i> NEW FEATURES
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added a deep scan feature to scan and log all possible matches for an account.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added information tooltips to provide additional context.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added a warning to show that a match is not indexed.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added embeds when sending links on discord.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Added more stats displayed on the performance page of a player.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Changes -->
+                        <div>
+                            <h3 class="text-amber-500 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-amber-500/10 w-fit px-2 py-1 border border-amber-500/20">
+                                <i class="fa-solid fa-code-compare"></i> ADJUSTMENTS
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-amber-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Adjusted PR calculations a bit to use objective damage more. There will be further refinements in future updates.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-amber-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Adjusted wording on various pages to make more sense.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-amber-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>To see these changes please re-sync your accounts.</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <!-- Fixes -->
+                        <div>
+                            <h3 class="text-red-400 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-red-500/10 w-fit px-2 py-1 border border-red-500/20">
+                                <i class="fa-solid fa-wrench"></i> BUG FIXES
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed search bars not allowing autofill on other pages.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed rank badges not displaying correctly.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed unindexed matches hurting PR calculation.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed rare bug where names were displayed as ids in match page.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-red-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Fixed issue with trending players's ranks not displaying.</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Update Entry 2 -->
+            <div class="relative mb-12 flex flex-col md:flex-row gap-6 md:gap-12 items-start group">
+                <div class="absolute -left-12 md:relative md:left-0 md:w-[120px] md:text-right pt-4 z-10 flex-shrink-0">
+                    <div class="absolute left-[7px] md:left-auto md:right-[-31px] top-6 w-3 h-3 bg-stone-500 rotate-45 border border-stone-400 group-hover:scale-125 transition-transform group-hover:bg-amber-500 group-hover:border-amber-300"></div>
+                    <div class="hidden md:block">
+                        <div class="text-stone-300 font-bold logo-font text-xl group-hover:text-amber-500 transition-colors">v1.0</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest mt-1 uppercase">July 27, 2026</div>
+                    </div>
+                </div>
+
+                <div class="deadlock-panel p-6 flex-1 w-full opacity-80 hover:opacity-100 transition-opacity">
+                    <div class="md:hidden flex items-center justify-between border-b border-stone-800 pb-3 mb-4">
+                        <div class="text-stone-300 font-bold logo-font text-xl group-hover:text-amber-500 transition-colors">v1.0</div>
+                        <div class="text-[10px] text-stone-500 font-mono tracking-widest uppercase bg-stone-950 px-2 py-1 border border-stone-800">July 27, 2026</div>
+                    </div>
+
+                    <h2 class="text-xl font-bold text-stone-100 logo-font mb-5">Initial Website Launch</h2>
+                    
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="text-emerald-400 text-[10px] font-mono tracking-widest uppercase mb-3 flex items-center gap-2 bg-emerald-500/10 w-fit px-2 py-1 border border-emerald-500/20">
+                                <i class="fa-solid fa-plus"></i> LAUNCH FEATURES
+                            </h3>
+                            <ul class="space-y-2 text-sm text-stone-300 font-sans">
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Basic webpages allowing lookup for player information.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Leaderboards ranking accounts by pr rating.</span>
+                                </li>
+                                <li class="flex items-start gap-3">
+                                    <span class="text-emerald-500/50 mt-1"><i class="fa-solid fa-angles-right text-[10px]"></i></span>
+                                    <span>Updated domain and launched website to the public.</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- SEARCH SCRIPT (Copied directly from Match/Player pages) -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('search-input');
+            const searchDropdown = document.getElementById('search-dropdown');
+            const searchResults = document.getElementById('search-results');
+            const searchSpinner = document.getElementById('search-spinner');
+            let debounceTimer;
+
+            if (!searchInput) return;
+
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#search-container')) {
+                    searchDropdown.classList.add('hidden');
+                }
+            });
+
+            searchInput.addEventListener('focus', () => {
+                if (searchInput.value.length > 0 || searchResults.innerHTML.trim() !== '') {
+                    searchDropdown.classList.remove('hidden');
+                    if (searchInput.value.length === 0) fetchResults('');
+                } else {
+                     fetchResults('');
+                     searchDropdown.classList.remove('hidden');
+                }
+            });
+
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(debounceTimer);
+                const query = e.target.value.trim();
+                
+                searchSpinner.classList.remove('hidden');
+                
+                debounceTimer = setTimeout(() => {
+                    fetchResults(query);
+                }, 300);
+            });
+
+            function fetchResults(query) {
+                fetch(`/api/search-players?q=${encodeURIComponent(query)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        searchSpinner.classList.add('hidden');
+                        searchResults.innerHTML = '';
+                        
+                        if (data.length === 0) {
+                            searchResults.innerHTML = '<div class="p-4 text-center text-xs mono-font text-stone-500">NO PLAYERS FOUND</div>';
+                            return;
+                        }
+
+                        data.forEach(player => {
+                            const a = document.createElement('a');
+                            a.href = `/player/${player.steam64}`;
+                            a.className = 'flex items-center gap-3 p-2 hover:bg-stone-900 transition-colors border-b border-stone-800/50 last:border-0';
+                            
+                            a.innerHTML = `
+                                <img src="${player.avatar}" alt="Avatar" class="w-10 h-10 object-cover bg-stone-900 border border-stone-700">
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-bold text-sm text-stone-200 truncate font-sans tracking-wide">${player.personaname}</div>
+                                    <div class="text-[10px] text-stone-500 truncate mono-font uppercase tracking-wider">${player.main_hero}</div>
+                                </div>
+                                <div class="text-right flex items-center gap-2">
+                                    <div class="text-xs font-mono text-emerald-400 font-bold">${player.pr} PR</div>
+                                    ${player.rank_image ? `<img src="${player.rank_image}" class="w-5 h-5 object-contain">` : ''}
+                                </div>
+                            `;
+                            searchResults.appendChild(a);
+                        });
+                        searchDropdown.classList.remove('hidden');
+                    })
+                    .catch(() => {
+                        searchSpinner.classList.add('hidden');
+                    });
+            }
+        });
+    </script>
+</body>
+</html>
