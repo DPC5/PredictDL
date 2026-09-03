@@ -19,7 +19,12 @@ from api import (
     enrich_match_with_local_data,
     get_match_metadata,
     get_most_played_heros,
-    get_hero_rank,  # ADDED EXPLICIT IMPORT
+    get_active_matches,
+    get_global_player_metrics,
+    steamid3_to_steam64,
+    get_player_rank,
+    get_player_rank_image_url,
+    get_rank_tier_assets,
     calcPr,
     get_item_info,
     get_final_items,
@@ -52,82 +57,75 @@ with open(HEROS_FILE, 'r', encoding='utf-8') as f:
 latest_patch_cache = None
 CACHE_MAX_AGE_SECONDS = 2 * 24 * 60 * 60
 
-RANK_IMAGES = {
-    "Obscurus": "/static/images/ranks/Obscurus.webp",
-    "Initiate": [
-        "/static/images/ranks/Initiate_1.webp", "/static/images/ranks/Initiate_2.webp",
-        "/static/images/ranks/Initiate_3.webp", "/static/images/ranks/Initiate_4.webp",
-        "/static/images/ranks/Initiate_5.webp", "/static/images/ranks/Initiate_6.webp",
-    ],
-    "Seeker": [
-        "/static/images/ranks/Seeker_1.webp", "/static/images/ranks/Seeker_2.webp",
-        "/static/images/ranks/Seeker_3.webp", "/static/images/ranks/Seeker_4.webp",
-        "/static/images/ranks/Seeker_5.webp", "/static/images/ranks/Seeker_6.webp",
-    ],
-    "Alchemist": [
-        "/static/images/ranks/Alchemist_1.webp", "/static/images/ranks/Alchemist_2.webp",
-        "/static/images/ranks/Alchemist_3.webp", "/static/images/ranks/Alchemist_4.webp",
-        "/static/images/ranks/Alchemist_5.webp", "/static/images/ranks/Alchemist_6.webp",
-    ],
-    "Arcanist": [
-        "/static/images/ranks/Arcanist_1.webp", "/static/images/ranks/Arcanist_2.webp",
-        "/static/images/ranks/Arcanist_3.webp", "/static/images/ranks/Arcanist_4.webp",
-        "/static/images/ranks/Arcanist_5.webp", "/static/images/ranks/Arcanist_6.webp",
-    ],
-    "Ritualist": [
-        "/static/images/ranks/Ritualist_1.webp", "/static/images/ranks/Ritualist_2.webp",
-        "/static/images/ranks/Ritualist_3.webp", "/static/images/ranks/Ritualist_4.webp",
-        "/static/images/ranks/Ritualist_5.webp", "/static/images/ranks/Ritualist_6.webp",
-    ],
-    "Emissary": [
-        "/static/images/ranks/Emissary_1.webp", "/static/images/ranks/Emissary_2.webp",
-        "/static/images/ranks/Emissary_3.webp", "/static/images/ranks/Emissary_4.webp",
-        "/static/images/ranks/Emissary_5.webp", "/static/images/ranks/Emissary_6.webp",
-    ],
-    "Archon": [
-        "/static/images/ranks/Archon_1.webp", "/static/images/ranks/Archon_2.webp",
-        "/static/images/ranks/Archon_3.webp", "/static/images/ranks/Archon_4.webp",
-        "/static/images/ranks/Archon_5.webp", "/static/images/ranks/Archon_6.webp",
-    ],
-    "Oracle": [
-        "/static/images/ranks/Oracle_1.webp", "/static/images/ranks/Oracle_2.webp",
-        "/static/images/ranks/Oracle_3.webp", "/static/images/ranks/Oracle_4.webp",
-        "/static/images/ranks/Oracle_5.webp", "/static/images/ranks/Oracle_6.webp",
-    ],
-    "Phantom": [
-        "/static/images/ranks/Phantom_1.webp", "/static/images/ranks/Phantom_2.webp",
-        "/static/images/ranks/Phantom_3.webp", "/static/images/ranks/Phantom_4.webp",
-        "/static/images/ranks/Phantom_5.webp", "/static/images/ranks/Phantom_6.webp",
-    ],
-    "Ascendant": [
-        "/static/images/ranks/Ascendant_1.webp", "/static/images/ranks/Ascendant_2.webp",
-        "/static/images/ranks/Ascendant_3.webp", "/static/images/ranks/Ascendant_4.webp",
-        "/static/images/ranks/Ascendant_5.webp", "/static/images/ranks/Ascendant_6.webp",
-    ],
-    "Eternus": [
-        "/static/images/ranks/Eternus_1.webp", "/static/images/ranks/Eternus_2.webp",
-        "/static/images/ranks/Eternus_3.webp", "/static/images/ranks/Eternus_4.webp",
-        "/static/images/ranks/Eternus_5.webp", "/static/images/ranks/Eternus_6.webp",
-    ],
-}
+# ── Rank badges (Matchmaking Update) ────────────────────────────────────────
+# As of the Matchmaking Update (2026-07-30), the game stopped shipping
+# per-subrank badge art -- /v1/assets/ranks now serves ONE image per tier
+# (Obscurus, Initiate, ... Eternus), not one per subrank. RANK_NAMES stays a
+# flat list of the 12 tiers so existing badge-number math (1-66) keeps working;
+# badge art is now resolved through RANK_TIER_ASSETS_CACHE (populated from the
+# live API by warm_rank_tier_assets_cache()) instead of local per-subrank files.
+RANK_NAMES = [
+    "Obscurus", "Initiate", "Seeker", "Alchemist", "Arcanist",
+    "Ritualist", "Emissary", "Archon", "Oracle", "Phantom",
+    "Ascendant", "Eternus",
+]
 
-RANK_NAMES = list(RANK_IMAGES.keys())
+# Old per-subrank local files. Deprecated by the game/API but kept as a
+# last-resort fallback for the rare case the live /v1/assets/ranks fetch
+# fails AND no disk cache exists yet (e.g. first run with no network).
+LEGACY_RANK_IMAGE_FALLBACK = "/static/images/ranks/Obscurus.webp"
+
+# In-process cache of {tier_name: {"large_webp":..,"large":..,"chalk_webp":..,"chalk":..}}
+# populated by warm_rank_tier_assets_cache(). Kept in-process (in addition to
+# api.py's on-disk cache) so template rendering doesn't need to be async.
+RANK_TIER_ASSETS_CACHE: dict = {}
 
 
-def number_to_rank_image(num: int) -> str:
-    if num == 0:
-        print(f"Warning: badge number {num} is invalid. Defaulting to Obscurus.")
-        return RANK_IMAGES["Obscurus"]
+def warm_rank_tier_assets_cache():
+    """Populates RANK_TIER_ASSETS_CACHE from the live API (or its disk cache)."""
+    global RANK_TIER_ASSETS_CACHE
+    try:
+        assets = asyncio.run(get_rank_tier_assets())
+        if assets:
+            RANK_TIER_ASSETS_CACHE = assets
+    except Exception as e:
+        print(f"Error warming rank tier assets cache: {e}")
 
-    rank_index = (num - 1) // 6 + 1
-    tier = (num - 1) % 6
 
-    if rank_index >= len(RANK_NAMES):
-        print(f"Warning: badge number {num} exceeds defined ranks. Defaulting to Obscurus.")
-        return RANK_IMAGES["Obscurus"]
+def get_rank_badge_image(tier_name: str, variant: str = "large_webp") -> str:
+    """
+    Best-effort badge image URL for a tier name ("Obscurus", "Initiate", ...).
+    Prefers the live-fetched large/large_webp art; falls back to the old local
+    Obscurus placeholder only if the live asset cache is completely empty.
+    """
+    info = RANK_TIER_ASSETS_CACHE.get(tier_name)
+    if info:
+        return (
+            info.get(variant)
+            or info.get("large_webp")
+            or info.get("large")
+            or info.get("chalk_webp")
+            or info.get("chalk")
+            or LEGACY_RANK_IMAGE_FALLBACK
+        )
+    return LEGACY_RANK_IMAGE_FALLBACK
 
-    rank_name = RANK_NAMES[rank_index]
-    return RANK_IMAGES[rank_name][tier]
+
+def badge_num_to_tier_and_subrank(badge_num: int) -> tuple[str, int]:
+    """badge 1-66 -> ("Initiate", 1) ... ("Eternus", 6). badge <= 0 -> ("Obscurus", 0)."""
+    if badge_num <= 0:
+        return "Obscurus", 0
+    badge_num = max(1, min(66, badge_num))
+    division = (badge_num - 1) // 6 + 1
+    subrank = (badge_num - 1) % 6 + 1
+    if division >= len(RANK_NAMES):
+        return "Eternus", subrank
+    return RANK_NAMES[division], subrank
+
+
+def badge_to_image(badge: int) -> str:
+    tier_name, _ = badge_num_to_tier_and_subrank(badge)
+    return get_rank_badge_image(tier_name)
 
 
 def mmr_to_badge(mmr_score: float) -> int:
@@ -138,8 +136,129 @@ def mmr_to_badge(mmr_score: float) -> int:
     return max(1, min(66, rank_index + 1))
 
 
-def badge_to_image(badge: int) -> str:
-    return number_to_rank_image(badge)
+def normalize_rank_image_url(raw: str | None) -> str:
+    """
+    Turns a stored rank_image value into something an <img src> can use
+    directly. Badge art now comes from the live deadlock-api.com CDN
+    (absolute https:// URLs) instead of local /static/ files, so this needs
+    to leave absolute URLs alone -- only relative legacy paths get the
+    /static/ prefix.
+    """
+    if not raw:
+        return LEGACY_RANK_IMAGE_FALLBACK
+    if raw.startswith('http://') or raw.startswith('https://') or raw.startswith('/static/'):
+        return raw
+    return f"/static/{raw}"
+
+
+def resolve_rank_widget(player_rank: dict | None, steamid3: str | None = None) -> dict:
+    """
+    Builds everything the player-screen rank widget needs: current badge
+    image (fetched live from the /rank/image endpoint -- already has the
+    I-VI division numeral baked in), next-rank badge image (plain tier art
+    from /v1/assets/ranks, since /rank/image only renders *this* player's
+    actual rank), tier/subrank labels, and a progress-points bar.
+
+    `player_rank` is the dict returned by api.get_player_rank():
+        {"badge": int, "rank": int, "subrank": int, "last_match": dict|None}
+
+    A subrank spans 1000 progress points. The player's current progress
+    within their subrank comes from last_match.player_rank_final_flat_progress
+    (the flat, ever-increasing progress counter Valve reports), taken mod
+    1000 -- the /rank endpoint itself only reports the resulting badge, not
+    a ready-made "X/1000" number, so this is how that number is derived.
+    """
+    if not RANK_TIER_ASSETS_CACHE:
+        # Lazy fallback in case the app entrypoint skipped warm_rank_tier_assets_cache()
+        warm_rank_tier_assets_cache()
+
+    # Number of visual segments to split the progress bar into on the frontend
+    TOTAL_SEGMENTS = 5
+
+    badge = (player_rank or {}).get("badge") or 0
+    rank = (player_rank or {}).get("rank") or 0
+    subrank = (player_rank or {}).get("subrank") or 0
+    last_match = (player_rank or {}).get("last_match")
+
+    is_unranked = badge <= 0 and rank <= 0
+
+    # Current badge image: pull straight from the live rank/image endpoint
+    # when we know who the player is, since it's account-specific (numeral
+    # baked in). Fall back to the plain Obscurus tier art otherwise.
+    current_badge_image = (
+        get_player_rank_image_url(steamid3) if steamid3 else get_rank_badge_image("Obscurus")
+    )
+
+    if is_unranked:
+        in_placement = last_match is not None
+        return {
+            "is_unranked": True,
+            "in_placement": in_placement,
+            "current_badge_image": current_badge_image,
+            "current_tier_label": "In Placement" if in_placement else "Obscurus",
+            "next_badge_image": None,
+            "next_tier_label": None,
+            "rp": 0,
+            "max_rp": 1000,
+            "rp_percent": 0,
+            "rp_known": False,
+            "segments": [{"fill_percent": 0} for _ in range(TOTAL_SEGMENTS)],
+        }
+
+    current_tier_name = RANK_NAMES[rank] if 0 <= rank < len(RANK_NAMES) else "Eternus"
+    is_max_rank = rank >= len(RANK_NAMES) - 1 and subrank >= 6
+
+    if is_max_rank:
+        next_badge_image = None
+        next_tier_label = "MAX RANK"
+    else:
+        if subrank >= 6:
+            next_rank_idx, next_subrank = rank + 1, 1
+        else:
+            next_rank_idx, next_subrank = rank, subrank + 1
+        next_tier_name = RANK_NAMES[next_rank_idx] if next_rank_idx < len(RANK_NAMES) else "Eternus"
+        next_badge_image = get_rank_badge_image(next_tier_name)
+        next_tier_label = f"{next_tier_name} {next_subrank}" if next_tier_name != "Obscurus" else next_tier_name
+
+    # Progress points within the current subrank (0-1000)
+    max_rp = 1000
+    rp_known = False
+    rp = 0
+    if last_match:
+        final_progress = last_match.get("player_rank_final_flat_progress")
+        if final_progress is not None:
+            rp = max(0, min(max_rp, int(final_progress) % max_rp))
+            rp_known = True
+
+    # Calculate fill percentage for each segment independently
+    segments = []
+    rp_per_segment = max_rp / TOTAL_SEGMENTS
+
+    for i in range(TOTAL_SEGMENTS):
+        segment_start_rp = i * rp_per_segment
+        segment_end_rp = (i + 1) * rp_per_segment
+
+        if rp >= segment_end_rp:
+            segments.append({"fill_percent": 100})
+        elif rp <= segment_start_rp:
+            segments.append({"fill_percent": 0})
+        else:
+            fill = ((rp - segment_start_rp) / rp_per_segment) * 100
+            segments.append({"fill_percent": round(fill, 1)})
+
+    return {
+        "is_unranked": False,
+        "in_placement": False,
+        "current_badge_image": current_badge_image,
+        "current_tier_label": f"{current_tier_name} {subrank}" if current_tier_name != "Obscurus" else current_tier_name,
+        "next_badge_image": next_badge_image,
+        "next_tier_label": next_tier_label,
+        "rp": rp,
+        "max_rp": max_rp,
+        "rp_percent": round((rp / max_rp) * 100, 1) if rp_known else 0,
+        "rp_known": rp_known,
+        "segments": segments,
+    }
 
 
 # ── Metrics Helper Logic ───────────────────────────────────────────────────
@@ -271,8 +390,12 @@ def get_top_searched_players(limit=3) -> list:
                 total_a = sum(m.get("assists", 0) for m in match_history)
                 kda = round((total_k + total_a) / total_d, 1) if total_d > 0 else 0.0
 
-                raw_rank = profile_data.get("rank_image", "images/ranks/Initiate_1.webp")
-                clean_rank = raw_rank.replace("/static/", "").lstrip("/")
+                # NOTE: badge art now comes from the live deadlock-api.com CDN
+                # (absolute https:// URLs), not local /static/ files -- this is
+                # a ready-to-use <img src> value now, not a url_for() filename.
+                # If index.html renders this via url_for('static', filename=...),
+                # switch it to `<img src="{{ t.rank_image }}">` directly.
+                clean_rank = normalize_rank_image_url(profile_data.get("rank_image"))
 
                 trending_list.append({
                     "steam64": steam64,
@@ -382,7 +505,7 @@ def analyze_player_relationships(steamid3: str, match_history: list) -> list:
                         hero_name = "Unknown"
 
                     teammates[aid] = {
-                        "account_id": aid,
+                        "account_id": steamid3_to_steam64(aid),
                         "hero_name": hero_name,
                         "matches": 0,
                         "wins": 0,
@@ -402,66 +525,32 @@ def analyze_player_relationships(steamid3: str, match_history: list) -> list:
 
 
 # ── Mastery Tab Helpers ─────────────────────────────────────────────────
-#
-# analyze_hero_context() scopes the same "who was in this match" logic used
-# for laning partners down to a single hero, so we can surface a player's
-# favorite teammate *specifically when playing this hero* and the enemy
-# hero they've run into the most while on it. It reuses the locally cached
-# match metadata (no extra API calls) the same way analyze_player_relationships does.
 
-def analyze_hero_context(steamid3: str, hero_matches: list) -> dict:
-    teammates = {}
-    enemies = {}
 
-    for m in hero_matches:
-        match_id = m.get("match_id")
-        cached = load_match_cache(match_id)
-        if not cached:
-            continue
+# Rank-letter thresholds for the Mastery tab. Same "house-made flavor stat"
+# philosophy as before (see mastery_score above) -- just presented the way a
+# competitive-game rank screen would (S/A/B/C/D with +/- gradations) instead
+# of the old wordy tier names. `glow` marks the ranks that should render with
+# the bloom/glow effect next to the hero name (reserved for the S ranks so it
+# actually feels special).
+_MASTERY_LETTER_THRESHOLDS = [
+    (1100, "S+", True),
+    (900,  "S",  True),
+    (700,  "A+", False),
+    (550,  "A",  False),
+    (400,  "B+", False),
+    (300,  "B",  False),
+    (180,  "C+", False),
+    (100,  "C",  False),
+    (0,    "D",  False),
+]
 
-        match_info = cached.get("match_info") or cached
-        players = match_info.get("players") or []
 
-        user_team = None
-        for p in players:
-            if str(p.get("account_id")) == str(steamid3):
-                user_team = p.get("team") or p.get("player_team")
-                break
-        if user_team is None:
-            continue
-
-        for p in players:
-            aid = str(p.get("account_id", ""))
-            if aid == str(steamid3) or not aid or aid == "0":
-                continue
-
-            p_team = p.get("team") or p.get("player_team")
-
-            hero_id = p.get("hero_id") or p.get("hero")
-            enemy_hero_name = p.get("hero_name")
-            if not enemy_hero_name or str(enemy_hero_name).lower() in ("unknown", "unknown hero", "none"):
-                if hero_id is not None:
-                    try:
-                        enemy_hero_name = API_HEROS_MAP.get(int(hero_id))
-                    except (ValueError, TypeError):
-                        enemy_hero_name = None
-            enemy_hero_name = enemy_hero_name or "Unknown"
-
-            if p_team == user_team:
-                entry = teammates.setdefault(aid, {"account_id": aid, "hero_name": enemy_hero_name, "matches": 0, "wins": 0})
-                entry["matches"] += 1
-                if m.get("won"):
-                    entry["wins"] += 1
-            else:
-                entry = enemies.setdefault(enemy_hero_name, {"hero_name": enemy_hero_name, "matches": 0, "wins_against": 0})
-                entry["matches"] += 1
-                if m.get("won"):
-                    entry["wins_against"] += 1
-
-    top_teammate = max(teammates.values(), key=lambda x: x["matches"], default=None)
-    top_enemy = max(enemies.values(), key=lambda x: x["matches"], default=None)
-
-    return {"favorite_teammate": top_teammate, "most_faced_enemy": top_enemy}
+def _mastery_letter_grade(mastery_score: float) -> tuple:
+    for threshold, letter, glow in _MASTERY_LETTER_THRESHOLDS:
+        if mastery_score >= threshold:
+            return letter, glow
+    return "D", False
 
 
 def build_player_mastery(steamid3: str, match_history: list, most_played: list, top_n: int = 5) -> list:
@@ -477,12 +566,6 @@ def build_player_mastery(steamid3: str, match_history: list, most_played: list, 
         if not base:
             continue
 
-        hero_matches = [
-            m for m in match_history
-            if m.get("hero_id") == hero_id or m.get("hero_name") == hero_name
-        ]
-        base.update(analyze_hero_context(steamid3, hero_matches))
-
         # "Mastery Score" is a fun, transparent house-made flavor stat (volume
         # of games + win rate + longest win streak) -- Deadlock has no
         # official mastery system, so this is clearly our own invention,
@@ -491,13 +574,9 @@ def build_player_mastery(steamid3: str, match_history: list, most_played: list, 
             matches_count * 12 + (base["win_rate"] * 4) + (base["longest_win_streak"] * 15)
         )
         base["mastery_score"] = mastery_score
-        base["mastery_tier"] = (
-            "Legendary" if mastery_score >= 900 else
-            "Master" if mastery_score >= 600 else
-            "Adept" if mastery_score >= 350 else
-            "Apprentice" if mastery_score >= 150 else
-            "Novice"
-        )
+        letter, glow = _mastery_letter_grade(mastery_score)
+        base["mastery_tier"] = letter
+        base["mastery_glow"] = glow
 
         mastery_list.append(base)
 
@@ -828,7 +907,8 @@ async def fetch_player_data(steam64: str, existing_cache: dict = None, force_pr_
         
     steamid3 = steam64_to_steamid3(steam64)
 
-    hero_stats, new_matches, steam_info = await asyncio.gather(
+    global_metrics, hero_stats, new_matches, steam_info = await asyncio.gather(
+        get_global_player_metrics(),
         get_deadlock_hero_stats(steam64),
         get_player_match_history(steamid3, limit=None if deep else 10),
         get_steam_profile(steam64)
@@ -846,15 +926,27 @@ async def fetch_player_data(steam64: str, existing_cache: dict = None, force_pr_
     match_history = list(merged_dict.values())
     match_history.sort(key=lambda x: int(x.get("start_time") or 0), reverse=True)
 
+    # Backfill mode_label/rank_point_change on matches cached before this field existed
+    for m in match_history:
+        if "mode_label" not in m:
+            m["mode_label"] = api.classify_match_mode(m)
+            m["rank_point_change"] = (
+                api.compute_rank_point_change(m) if m["mode_label"] == "Ranked" else None
+            )
+        if "is_calibration_match" not in m:
+            m["is_calibration_match"] = (
+                api.is_calibration_match(m) if m["mode_label"] == "Ranked" else False
+            )
+
     total_matches = sum(h.get("matches_played", 0) for h in hero_stats)
     most_played = get_most_played_heros(hero_stats)
 
-    # 1. Fetch Valve Rank Data FIRST
-    valve_rank_data = None
-    if most_played:
-        top_hero_id = most_played[0][2]
-        valve_rank_data = await get_hero_rank(top_hero_id, steamid3)
-        print(f"Fetched Valve Rank Data for {steamid3}: {valve_rank_data}")
+    # 1. Fetch the player's overall rank via the new /v1/players/{id}/rank
+    #    endpoint (renamed from /rank-predict in the Matchmaking Update).
+    #    This replaced the old per-hero MMR lookup as the source of truth for
+    #    the profile badge -- it's an account-level rank, not hero-specific.
+    valve_rank_data = await get_player_rank(steamid3)
+    print(f"Fetched player rank for {steamid3}: {valve_rank_data}")
 
     # ---------------------------------------------------------------------
     # 429 / FETCH FAILURE FALLBACK: Use cached rank data if fetch returned None
@@ -867,28 +959,17 @@ async def fetch_player_data(steam64: str, existing_cache: dict = None, force_pr_
 
     # 2. Pass effective_rank directly into calcPr
     if force_pr_update or not existing_cache.get("pr_data"):
-        pr_data = calcPr(hero_stats, steamid3=steamid3, player_rank=effective_rank)
+        pr_data = calcPr(hero_stats, steamid3=steamid3, player_rank=effective_rank, global_metrics=global_metrics)
     else:
         pr_data = existing_cache.get("pr_data")
 
-    # 3. Resolve Badge Image with Fallback
-    if force_pr_update or not existing_cache.get("rank_image"):
-        rank_image = None
-        
-        # Try resolving rank image from effective (fresh or cached) rank
-        if effective_rank and isinstance(effective_rank, dict) and "division" in effective_rank:
-            division = int(effective_rank.get("division", 0))
-            tier = int(effective_rank.get("division_tier", 0))
-            if division > 0:
-                badge_num = ((division - 1) * 6) + tier
-                rank_image = badge_to_image(badge_num)
-                print(f"Updated Rank Image for {steamid3}: Badge {badge_num}, Image {rank_image}")
-        
-        # Fall back to existing cached rank_image if effective_rank couldn't be resolved
-        if not rank_image:
-            rank_image = existing_cache.get("rank_image", badge_to_image(0))
-    else:
-        rank_image = existing_cache.get("rank_image", badge_to_image(0))
+    # 3. Resolve the rank widget (current badge, next badge, progress bar).
+    #    Obscurus/unranked -> is_unranked=True, no bar. Progress points come
+    #    straight from last_match.player_rank_final_flat_progress (see
+    #    resolve_rank_widget's docstring), and the current badge image is
+    #    the live /rank/image render for this account.
+    rank_widget = resolve_rank_widget(effective_rank, steamid3=steamid3)
+    rank_image = rank_widget["current_badge_image"]
 
     player_tags = generate_player_tags(hero_stats, match_history, total_matches)
     teammates = analyze_player_relationships(steamid3, match_history)
@@ -905,6 +986,7 @@ async def fetch_player_data(steam64: str, existing_cache: dict = None, force_pr_
         "most_played": most_played,
         "total_matches": total_matches,
         "rank_image": rank_image,
+        "rank_widget": rank_widget,
         "player_tags": player_tags,
         "teammates": teammates,
         "hero_mastery": hero_mastery,
@@ -955,7 +1037,15 @@ def get_or_refresh_player(steam64: str, force: bool = False, deep: bool = False)
                 top_n=5
             )
             modified_cache = True
-        
+
+        # Backfill the rank widget (current/next badge + progress bar) for
+        # caches written before this rework. Rebuilt from the rank data
+        # already in the cache -- no extra API call needed.
+        if "rank_widget" not in cache:
+            cache["rank_widget"] = resolve_rank_widget(cache.get("valve_rank_data"), steamid3=steamid3)
+            cache["rank_image"] = cache["rank_widget"]["current_badge_image"]
+            modified_cache = True
+
         if modified_cache:
             save_player_cache(steamid3, cache)
             
@@ -1042,13 +1132,18 @@ app.jinja_env.filters['format_souls'] = format_souls
 
 def hero_icon(hero_name: str) -> str:
     if not hero_name or hero_name.lower() in ("unknown hero", "unknown", ""):
-        return "/static/images/unknown.png"
-    name = hero_name.lower()
-    name = name.replace(" & ", "_and_")
-    name = name.replace("&", "_and_")
-    name = name.replace(" ", "_")
-    name = "".join(c for c in name if c.isalnum() or c == "_")
-    return f"/static/images/heros/{name}.png"
+        return "images/unknown.png"
+    # Files on disk keep the hero's original casing exactly (e.g. Abrams.png,
+    # Grey_Talon.png, Lady_Geist.png, Mo_&_Krill.png) -- only spaces become
+    # underscores. Lowercasing or rewriting "&" breaks the lookup entirely
+    # on case-sensitive filesystems.
+    #
+    # NOTE: this returns a path WITHOUT a leading "/static/" -- every call
+    # site in the templates does `src="/static/{{ ... | hero_icon }}"`, so
+    # returning "/static/..." here as well was doubling the prefix into
+    # "/static/static/images/heros/...", a path that never exists.
+    name = hero_name.strip().replace(" ", "_")
+    return f"images/heros/{name}.png"
 
 app.jinja_env.filters['hero_icon'] = hero_icon
 
@@ -1076,6 +1171,121 @@ app.jinja_env.filters['item_name'] = item_name
 def _safe_int(v) -> int:
     try: return int(float(v))
     except: return 0
+
+# ── Death Map ────────────────────────────────────────────────────────────
+# NOTE ON CALIBRATION: Valve doesn't publish a documented world-coordinate ->
+# minimap-image mapping for Deadlock, and there's no fixed bounding box we
+# can trust blindly (even dedicated third-party replay tools like UltimateMove's
+# analyzer ship a manual "Calibrate map" step for exactly this reason). Rather
+# than guess a static world-space box - which is what produced the
+# scattered/"random"-looking markers before - we auto-fit the transform to the
+# actual range of death coordinates seen *in this match*. That guarantees
+# every marker lands inside the image and that their positions *relative to
+# each other* are correct, even though we can't promise pixel-perfect
+# alignment with real landmarks (lanes/shops/etc.) without a proper Valve-
+# provided calibration reference.
+_DEATH_MAP_PADDING_PCT = 8.0  # keep markers off the image's outer edge
+
+
+def _extract_death_events(p: dict) -> list:
+    """Best-effort extraction of per-death world positions from a raw player
+    blob. The public match-metadata endpoint doesn't document a stable field
+    for this, so we try several plausible shapes and skip anything we can't
+    parse rather than guessing. Returns a list of
+    {x, y, time_s, killer_slot} in raw world coordinates.
+    """
+    candidates = (
+        p.get("death_details")
+        or p.get("deaths_details")
+        or p.get("player_deaths_details")
+        or p.get("death_events")
+        or []
+    )
+    if not isinstance(candidates, list):
+        return []
+
+    events = []
+    for d in candidates:
+        if not isinstance(d, dict):
+            continue
+
+        pos = d.get("death_pos") or d.get("position") or d.get("pos")
+        x = y = None
+        if isinstance(pos, dict):
+            x = pos.get("x")
+            y = pos.get("y")
+        elif isinstance(pos, (list, tuple)) and len(pos) >= 2:
+            x, y = pos[0], pos[1]
+
+        if x is None:
+            x = d.get("pos_x") or d.get("x") or d.get("death_pos_x")
+        if y is None:
+            y = d.get("pos_y") or d.get("y") or d.get("death_pos_y")
+
+        if x is None or y is None:
+            continue
+
+        try:
+            x = float(x)
+            y = float(y)
+        except (TypeError, ValueError):
+            continue
+
+        time_s = (
+            d.get("game_time_s")
+            or d.get("time_s")
+            or d.get("game_time")
+            or d.get("death_time_s")
+        )
+
+        events.append({
+            "x": x,
+            "y": y,
+            "time_s": int(time_s) if time_s is not None else None,
+            "killer_slot": d.get("killer_player_slot"),
+        })
+
+    return events
+
+
+def _fit_death_map_bounds(all_events: list) -> tuple:
+    """Computes a square (min, max) world-space bounding box that contains
+    every death event in this match, with padding so markers don't sit
+    flush against the image edge. Falls back to a small default box if
+    there's 0-1 events (nothing meaningful to fit)."""
+    xs = [ev["x"] for ev in all_events]
+    ys = [ev["y"] for ev in all_events]
+    if len(all_events) < 2:
+        return (-1000.0, 1000.0), (-1000.0, 1000.0)
+
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+
+    # Use a single square span (not independent x/y scales) so the map's
+    # aspect ratio isn't distorted - just centered on whichever axis has
+    # more headroom.
+    span = max(max_x - min_x, max_y - min_y, 1.0)
+    pad = span * (_DEATH_MAP_PADDING_PCT / 100.0)
+    span += pad * 2
+
+    cx = (min_x + max_x) / 2.0
+    cy = (min_y + max_y) / 2.0
+    half = span / 2.0
+    return (cx - half, cx + half), (cy - half, cy + half)
+
+
+def _world_to_map_percent(x: float, y: float, x_bounds: tuple, y_bounds: tuple) -> tuple:
+    """Maps raw world coords onto a 0-100 (left/top %) pair for CSS
+    positioning over the minimap image, using this match's auto-fit bounds.
+    Y is flipped since world-up is image-up (smaller top offset)."""
+    x_min, x_max = x_bounds
+    y_min, y_max = y_bounds
+    x_span = max(x_max - x_min, 1.0)
+    y_span = max(y_max - y_min, 1.0)
+    px = ((x - x_min) / x_span) * 100.0
+    py = ((y_max - y) / y_span) * 100.0
+    return max(0.0, min(100.0, px)), max(0.0, min(100.0, py))
+
 
 def _build_match_context(match_id: int, raw: dict, viewed_account_id: str = None) -> dict:
     mi = raw.get("match_info") or raw 
@@ -1118,6 +1328,8 @@ def _build_match_context(match_id: int, raw: dict, viewed_account_id: str = None
     players_raw = mi.get("players") or raw.get("players") or []
 
     teams = {0: [], 1: []}
+    slot_to_account = {}
+    raw_death_events_by_account = {}
     for p in players_raw:
         team = p.get("team")
         if team is None:
@@ -1170,6 +1382,21 @@ def _build_match_context(match_id: int, raw: dict, viewed_account_id: str = None
         if not hero_name:
             hero_name = "Unknown"
 
+        # Track this player's slot so death events (which reference the
+        # killer only by player_slot) can be resolved to an account/hero
+        # once every player in the match has been processed.
+        player_slot = p.get("player_slot")
+        if player_slot is None:
+            player_slot = p.get("slot")
+        if player_slot is not None:
+            slot_to_account[player_slot] = str(account_id_raw)
+
+        raw_death_events_by_account[str(account_id_raw)] = {
+            "events": _extract_death_events(p),
+            "team": team,
+            "hero_name": hero_name,
+        }
+
         team_won = (team == winning_team)
         g_stats = {
             "hero_id": hero_id,
@@ -1184,8 +1411,8 @@ def _build_match_context(match_id: int, raw: dict, viewed_account_id: str = None
             "ending_level": int(level) if level is not None else 20,
         }
         try:
-            g_pr_res = calcPr(g_stats)
-            game_pr = round(g_pr_res.get("general_pr", 0) if isinstance(g_pr_res, dict) else 0)
+            g_pr_res = calcPr(g_stats, debug=False)
+            game_pr = round(g_pr_res.get("overall_pr", 0) if isinstance(g_pr_res, dict) else 0)
         except Exception:
             game_pr = 0
 
@@ -1211,6 +1438,42 @@ def _build_match_context(match_id: int, raw: dict, viewed_account_id: str = None
     for t in teams:
         teams[t].sort(key=lambda x: x["net_worth"], reverse=True)
 
+    # Second pass: now that every player's slot/account/hero is known, resolve
+    # each death event's killer_slot into an actual killer account + hero so
+    # the map tooltip can show "Killer (Hero) | Victim (Hero) [time]".
+    # Bounds are fit to this match's actual death coordinates (see note above
+    # _fit_death_map_bounds) rather than a guessed fixed world box.
+    _all_events = [ev for bundle in raw_death_events_by_account.values() for ev in bundle["events"]]
+    _x_bounds, _y_bounds = _fit_death_map_bounds(_all_events)
+
+    death_markers = []
+    for victim_account_id, bundle in raw_death_events_by_account.items():
+        for ev in bundle["events"]:
+            left_pct, top_pct = _world_to_map_percent(ev["x"], ev["y"], _x_bounds, _y_bounds)
+            killer_account_id = slot_to_account.get(ev["killer_slot"])
+            killer_hero_name = None
+            killer_team = None
+            if killer_account_id is not None:
+                killer_bundle = raw_death_events_by_account.get(killer_account_id)
+                if killer_bundle:
+                    killer_hero_name = killer_bundle["hero_name"]
+                    killer_team = killer_bundle["team"]
+            death_markers.append({
+                "account_id":        victim_account_id,
+                "team":              bundle["team"],
+                "hero_name":         bundle["hero_name"],
+                "time_s":            ev["time_s"],
+                "left_pct":          round(left_pct, 2),
+                "top_pct":           round(top_pct, 2),
+                "killer_account_id": killer_account_id,
+                "killer_hero_name":  killer_hero_name,
+                "killer_team":       killer_team,
+                # True environmental/neutral deaths (no killer_slot resolved
+                # to a player on the opposing team) are shown as "Unknown".
+                "is_environmental":  killer_account_id is None,
+            })
+    death_markers.sort(key=lambda dm: (dm["time_s"] is None, dm["time_s"]))
+
     all_players = teams[0] + teams[1]
     team0_kills = sum(p["kills"] for p in teams[0])
     team1_kills = sum(p["kills"] for p in teams[1])
@@ -1234,6 +1497,14 @@ def _build_match_context(match_id: int, raw: dict, viewed_account_id: str = None
         "total_players":      len(all_players),
         "max_damage":         max_damage,
         "viewed_account_id":  viewed_account_id or "",
+        "death_markers":      death_markers,
+        # NOTE: this is the highest-resolution public Deadlock minimap image
+        # I could confirm (deadlock.wiki's own file, not a downscaled thumb).
+        # I couldn't find a verified higher-res official asset via search -
+        # if you have a better source (e.g. extracted directly from game
+        # files, or a texture dump), swap the URL here or point it at a
+        # local /static/images/ file instead.
+        "map_image_url":      "https://deadlock.wiki/images/c/cf/Midtown0min.png",
     }
 
 
@@ -1270,7 +1541,7 @@ def api_search_players():
     if not query:
         trending = get_top_searched_players(limit=5)
         for t in trending:
-            rank_url = f"/static/{t['rank_image']}" if not t['rank_image'].startswith('/static/') else t['rank_image']
+            rank_url = normalize_rank_image_url(t.get('rank_image'))
             results.append({
                 "steam64": t["steam64"],
                 "personaname": t["personaname"],
@@ -1296,8 +1567,7 @@ def api_search_players():
                     top_hero = most_played_list[0][0] if most_played_list else "Unknown Hero"
                     pr = round(data.get("pr_data", {}).get("overall_pr", 0))
                     
-                    raw_rank = data.get("rank_image", "images/ranks/Initiate_1.webp")
-                    rank_url = f"/static/{raw_rank}" if not raw_rank.startswith('/static/') else raw_rank
+                    rank_url = normalize_rank_image_url(data.get("rank_image"))
 
                     results.append({
                         "steam64": steam64,
@@ -1344,8 +1614,7 @@ def leaderboard():
 
             if selected_hero == 'All':
                 pr_val = pr_data.get('overall_pr', 0)
-                raw_rank = data.get('rank_image', 'images/ranks/Initiate_1.webp')
-                rank_image = f"/static/{raw_rank}" if not raw_rank.startswith('/static/') else raw_rank
+                rank_image = normalize_rank_image_url(data.get('rank_image'))
             else:
                 hero_pr_val = 0
                 found = False
@@ -1364,8 +1633,7 @@ def leaderboard():
                 rank_index = max(0, min(65, rank_index))
                 
                 try:
-                    badge_img = badge_to_image(rank_index + 1)
-                    rank_image = f"/static/{badge_img}" if not badge_img.startswith('/static/') else badge_img
+                    rank_image = normalize_rank_image_url(badge_to_image(rank_index + 1))
                 except Exception:
                     rank_image = "/static/images/unknown.png"
 
@@ -1427,7 +1695,7 @@ def player_profile(query):
             cache_stale=stale,
             **{k: data.get(k) for k in (
                 'player', 'pr_data', 'most_played',
-                'hero_stats', 'match_history', 'total_matches', 'rank_image', 
+                'hero_stats', 'match_history', 'total_matches', 'rank_image', 'rank_widget',
                 'is_private', 'player_tags', 'teammates', 'performance_stats', 'mmr_history',
                 'hero_mastery'
             )}
@@ -1446,6 +1714,7 @@ def player_profile(query):
             match_history=[],
             total_matches=0,
             rank_image=None,
+            rank_widget=None,
             last_updated=None,
             cache_stale=False,
             is_private=False,
@@ -1531,11 +1800,7 @@ def match_detail(match_id):
                     account_pr = round(cache.get("pr_data", {}).get("overall_pr", 0))
                     p["account_pr"] = account_pr if account_pr > 0 else None
                     p["is_private"] = cache.get("is_private", False)
-                    raw_rank = cache.get("rank_image")
-                    if raw_rank:
-                        p["rank_image"] = f"/static/{raw_rank}" if not raw_rank.startswith('/static/') and not raw_rank.startswith('http') else raw_rank
-                    else:
-                        p["rank_image"] = None
+                    p["rank_image"] = normalize_rank_image_url(cache.get("rank_image")) if cache.get("rank_image") else None
 
                     mmr_val = cache.get("mmr") or cache.get("pr_data", {}).get("mmr")
                     if not mmr_val and account_pr:
@@ -1547,10 +1812,9 @@ def match_detail(match_id):
                     p["mmr"] = int(p.get("game_pr", 0) * 0.85)
                     if p["mmr"] > 0:
                         badge = mmr_to_badge(p["mmr"])
-                        badge_img = badge_to_image(badge)
-                        p["rank_image"] = f"/static/{badge_img}" if not badge_img.startswith('/static/') else badge_img
+                        p["rank_image"] = normalize_rank_image_url(badge_to_image(badge))
                     else:
-                        p["rank_image"] = "/static/images/ranks/Obscurus.webp"
+                        p["rank_image"] = get_rank_badge_image("Obscurus")
 
                 game_pr = p.get("game_pr", 0)
                 if p["account_pr"] is not None:
@@ -1565,6 +1829,32 @@ def match_detail(match_id):
                     p["pr_gain_loss"] = base_delta + perf_adj
                 else:
                     p["pr_gain_loss"] = base_delta
+
+        # Attach display names + hero icons to death markers now that
+        # usernames are resolved, so the map tooltip can render
+        # "Killer (icon) | Victim (icon) [time]" without extra lookups.
+        username_by_account = {
+            str(p.get("account_id", "")): p.get("username", f"#{p.get('account_id', '')}")
+            for team in ctx["teams"].values()
+            for p in team
+        }
+        for dm in ctx.get("death_markers", []):
+            dm["username"] = username_by_account.get(dm["account_id"], f"#{dm['account_id']}")
+            dm["hero_icon"] = f"/static/{hero_icon(dm['hero_name'])}" if dm.get("hero_name") else "/static/images/unknown.png"
+
+            killer_account_id = dm.get("killer_account_id")
+            if killer_account_id is not None:
+                dm["killer_username"] = username_by_account.get(str(killer_account_id), f"#{killer_account_id}")
+                dm["killer_hero_icon"] = (
+                    f"/static/{hero_icon(dm['killer_hero_name'])}" if dm.get("killer_hero_name") else "/static/images/unknown.png"
+                )
+            else:
+                dm["killer_username"] = "Unknown"
+                dm["killer_hero_icon"] = "/static/images/unknown.png"
+
+            mins = (dm["time_s"] or 0) // 60
+            secs = (dm["time_s"] or 0) % 60
+            dm["time_display"] = f"{mins:02d}:{secs:02d}" if dm.get("time_s") is not None else "--:--"
 
         return render_template(
             'match.html',
@@ -1600,7 +1890,173 @@ def hero_detail(hero_name):
         
     return render_template('hero_detail.html', hero=hero)
 
+#  live matches
+
+def _resolve_live_predictions(limit: int = 10) -> list:
+    """Fetches live matches and reshapes them into the card/modal format
+    expected by prediction.html (tier, confidence, avg mmr/pr, per-player rows)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        matches = loop.run_until_complete(get_active_matches(limit=limit))
+    finally:
+        loop.close()
+
+    # Batch-resolve usernames/avatars for every player across every match in one Steam call
+    all_account_ids = {
+        str(p["account_id"])
+        for m in matches
+        for p in (m["team0"]["players"] + m["team1"]["players"])
+        if p.get("account_id")
+    }
+    profiles = {}
+    if all_account_ids:
+        try:
+            import requests as _req
+            steam64_ids = [str(int(aid) + 76561197960265728) for aid in all_account_ids if aid.isdigit()]
+            for i in range(0, len(steam64_ids), 100):
+                chunk = ",".join(steam64_ids[i:i + 100])
+                resp = _req.get(
+                    f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
+                    f"?key={STEAM_API_KEY}&steamids={chunk}",
+                    timeout=10
+                )
+                for prof in resp.json().get("response", {}).get("players", []):
+                    aid = str(int(prof["steamid"]) - 76561197960265728)
+                    profiles[aid] = {
+                        "username": prof.get("personaname", f"#{aid}"),
+                        "avatar": prof.get("avatarfull", "/static/images/unknown.png"),
+                    }
+        except Exception as e:
+            print(f"Live predictions - username resolution error: {e}")
+
+    def build_team(team_players: list) -> tuple[list, int, int]:
+        rows, mmr_total, pr_total, pr_count = [], 0, 0, 0
+        for p in team_players:
+            aid = str(p.get("account_id", ""))
+            cache = load_player_cache(aid) or {}
+            account_pr = round(cache.get("pr_data", {}).get("overall_pr", 0))
+            mmr_val = cache.get("mmr") or cache.get("pr_data", {}).get("mmr") or 0
+            if not mmr_val and account_pr:
+                mmr_val = int(account_pr * 0.85)
+
+            prof = profiles.get(aid, {})
+            rows.append({
+                "account_id": aid,
+                "username": prof.get("username", f"#{aid}"),
+                "hero_name": p.get("hero_name", "Unknown Hero"),
+                "hero_icon": f"/static/{hero_icon(p.get('hero_name'))}",
+                "mmr": mmr_val,
+                "pr": account_pr or None,
+                "kills": p.get("kills", 0),
+                "deaths": p.get("deaths", 0),
+                "assists": p.get("assists", 0),
+                "level": p.get("level", 1),
+            })
+            mmr_total += mmr_val
+            if account_pr:
+                pr_total += account_pr
+                pr_count += 1
+
+        n = len(team_players) or 1
+        avg_mmr = f"{round(mmr_total / n):,}" if mmr_total else "---"
+        avg_pr = round(pr_total / pr_count) if pr_count else None
+        return rows, avg_mmr, avg_pr
+
+    predictions_data = []
+    for m in matches:
+        team0_rows, team0_avg_mmr, team0_avg_pr = build_team(m["team0"]["players"])
+        team1_rows, team1_avg_mmr, team1_avg_pr = build_team(m["team1"]["players"])
+        amber_pred = m["team0"]["win_prediction"]
+        sapphire_pred = m["team1"]["win_prediction"]
+
+        team0_nw = m["team0"]["net_worth"]
+        team1_nw = m["team1"]["net_worth"]
+        total_nw = team0_nw + team1_nw
+        team0_soul_pct = round((team0_nw / total_nw) * 100, 1) if total_nw else 50.0
+        team1_soul_pct = round(100 - team0_soul_pct, 1) if total_nw else 50.0
+
+        # Momentum bar: a centered "tug of war" indicator. offset = how far
+        # the lead has pushed off the 50/50 midpoint.
+        lead_team = m.get("lead_team", "Tie")
+        offset = abs(team0_soul_pct - 50)
+        if lead_team == "Amber":
+            momentum_bar_left, momentum_bar_width = 50 - offset, offset
+        elif lead_team == "Sapphire":
+            momentum_bar_left, momentum_bar_width = 50, offset
+        else:
+            momentum_bar_left, momentum_bar_width = 50, 0
+
+        predictions_data.append({
+            "match_id": m["match_id"],
+            "tier": m.get("match_mode", "LIVE"),
+            "confidence": round(max(amber_pred, sapphire_pred)),
+            "predicted_winner": 0 if amber_pred >= sapphire_pred else 1,
+            "team0_avg_mmr": team0_avg_mmr,
+            "team1_avg_mmr": team1_avg_mmr,
+            "team0_avg_pr": team0_avg_pr if team0_avg_pr is not None else "---",
+            "team1_avg_pr": team1_avg_pr if team1_avg_pr is not None else "---",
+            "teams": [team0_rows, team1_rows],
+            "spectators": m.get("spectators", 0),
+            "game_time": m.get("time_display", "--:--"),
+            "team0_net_worth": team0_nw,
+            "team1_net_worth": team1_nw,
+            "soul_delta": m.get("net_worth_delta", 0),
+            "team0_soul_pct": team0_soul_pct,
+            "team1_soul_pct": team1_soul_pct,
+            "momentum_status": m.get("momentum_status", "Even Game"),
+            "lead_team": lead_team,
+            "momentum_bar_left": momentum_bar_left,
+            "momentum_bar_width": momentum_bar_width,
+        })
+
+    return predictions_data
+
+@app.route('/predictions')
+def prediction_page():
+    try:
+        predictions_data = _resolve_live_predictions(limit=10)
+    except Exception as e:
+        print(f"Prediction page error: {e}")
+        predictions_data = []
+
+    return render_template('prediction.html', predictions=predictions_data)
+
+
+@app.route('/api/active-matches')
+def api_active_matches():
+    """JSON API endpoint for client-side live polling updates."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        matches = loop.run_until_complete(get_active_matches(limit=30))
+    finally:
+        loop.close()
+    return jsonify({"success": True, "matches": matches})
+
+
+@app.route('/api/active-match/<int:match_id>')
+def api_active_match_detail(match_id):
+    """JSON API endpoint returning detailed telemetry for card inspection."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        matches = loop.run_until_complete(get_active_matches(limit=50))
+    finally:
+        loop.close()
+        
+    match_detail = next((m for m in matches if str(m["match_id"]) == str(match_id)), None)
+    if not match_detail:
+        return jsonify({"success": False, "error": "Match concluded or unavailable"}), 404
+        
+    return jsonify({"success": True, "match": match_detail})
+
+
+# STEAM
+
+
 
 if __name__ == '__main__':
     print("🚀 PredictDL starting...")
+    warm_rank_tier_assets_cache()
     app.run(debug=True, port=5000)

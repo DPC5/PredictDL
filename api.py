@@ -16,7 +16,10 @@ CONFIG_FILE = BASE_DIR / 'data' / 'config.json'
 STATS_FILE  = BASE_DIR / 'data' / 'stats.json'
 HEROS_FILE  = BASE_DIR / 'data' / 'heros.json'
 ITEMS_FILE  = BASE_DIR / 'data' / 'items.json'
+PLAYER_DATA_DIR = BASE_DIR / 'data' / 'player_data'
 MATCH_DATA_DIR = BASE_DIR / 'data' / 'match_data'
+METRICS_CACHE_FILE = BASE_DIR / 'data' / 'player_metrics_cache.json'
+METRICS_TTL_SECONDS = 3600
 
 with open(CONFIG_FILE, 'r') as file:
     config = json.load(file)
@@ -164,6 +167,9 @@ def steam64_to_steamid3(steam64: str) -> str:
     account_id = steam64_int - 76561197960265728
     return f"{account_id}"
 
+def steamid3_to_steam64(steamid3: str | int) -> str:
+    """Converts 32-bit Steam Account ID to 64-bit Steam ID."""
+    return str(int(steamid3) + 76561197960265728)
 
 async def get_deadlock_hero_stats(input_value: str):
     steam64 = resolve_steam_id(input_value)
@@ -234,6 +240,66 @@ def enrich_match_with_local_data(match: dict, steamid3: str):
 
     raw_items = match.get("items") or []
     match["items_info"] = get_final_items(raw_items)
+
+
+STREET_BRAWL_TOKENS = ("brawl",)
+
+
+def classify_match_mode(match: dict) -> str:
+    """
+    Buckets a match into 'Ranked', 'Unranked', or 'Street Brawl'.
+    Relies on mode-specific data fields being populated (not null)
+    rather than brittle enum parsing.
+    """
+    # 1. Check if Street Brawl fields are set
+    if match.get("brawl_avg_round_time_s") is not None or match.get("brawl_score_team0") is not None:
+        return "Street Brawl"
+        
+    # 2. Check if Ranked fields are set
+    if match.get("ranked_delta") is not None or match.get("ranked_display_badge") is not None:
+        return "Ranked"
+
+    # 3. Legacy string check fallback (just in case the API changes later)
+    match_mode_raw = match.get("match_mode_parsed") or match.get("match_mode") or ""
+    match_mode_str = str(match_mode_raw).lower()
+    
+    if "brawl" in match_mode_str:
+        return "Street Brawl"
+    if "ranked" in match_mode_str and "unranked" not in match_mode_str:
+        return "Ranked"
+
+    # Default to Unranked if no specific fields are populated
+    return "Unranked"
+
+def compute_rank_point_change(match: dict):
+    """
+    Best-effort extraction of the ranked-points gained/lost on a match.
+    The deadlock-api match-history endpoint reports this as `ranked_delta`;
+    a few legacy/alternate field names are checked as a fallback. Returns
+    None if none are present (in which case the UI simply omits the +/- RP
+    indicator).
+    """
+    for key in (
+        "ranked_delta",
+        "rank_change",
+        "score_change",
+        "player_score_change",
+        "delta_score",
+        "mmr_change",
+        "rank_points_change",
+    ):
+        val = match.get(key)
+        if val is not None:
+            try:
+                return int(round(float(val)))
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def is_calibration_match(match: dict) -> bool:
+    """Whether this ranked match was one of the player's calibration games."""
+    return bool(match.get("ranked_calibration_match"))
 
 
 async def get_player_match_history(steamid3: str, limit: int = 10) -> list:
@@ -314,6 +380,14 @@ async def get_player_match_history(steamid3: str, limit: int = 10) -> list:
             or match.get("hero_damage") 
             or 0
         )
+
+        match["mode_label"] = classify_match_mode(match)
+        match["rank_point_change"] = (
+            compute_rank_point_change(match) if match["mode_label"] == "Ranked" else None
+        )
+        match["is_calibration_match"] = (
+            is_calibration_match(match) if match["mode_label"] == "Ranked" else False
+        )
         
         match["objective_damage"] = (
             match.get("boss_damage")
@@ -378,12 +452,24 @@ def resolve_valve_rank(player_rank):
     badge_num = 0
 
     if isinstance(player_rank, dict):
-        division = int(player_rank.get("division") or player_rank.get("rank_division") or 0)
-        tier = int(player_rank.get("division_tier") or player_rank.get("tier") or 0)
+        # 1. Support the new Matchmaking API keys 'rank' and 'subrank'
+        division = int(player_rank.get("rank") or player_rank.get("division") or player_rank.get("rank_division") or 0)
+        tier = int(player_rank.get("subrank") or player_rank.get("division_tier") or player_rank.get("tier") or 0)
+        
         if division > 0:
+            # Convert Valve's 1-11 rank scale into the continuous 1-66 badge scale
             badge_num = ((division - 1) * 6) + max(1, min(6, tier if tier > 0 else 1))
         else:
-            badge_num = int(player_rank.get("badge") or player_rank.get("rank") or 0)
+            # Fallback for dictionaries that only supply 'badge'
+            raw_badge = int(player_rank.get("badge") or 0)
+            if raw_badge > 10:
+                # Parse Valve's internal format (e.g., 82 -> Tier 8, Subrank 2)
+                div = raw_badge // 10
+                sub = raw_badge % 10
+                badge_num = ((div - 1) * 6) + max(1, min(6, sub if sub > 0 else 1))
+            else:
+                badge_num = raw_badge
+
     elif isinstance(player_rank, (int, float)):
         val = float(player_rank)
         if 1 <= val <= 66:
@@ -407,6 +493,189 @@ def resolve_valve_rank(player_rank):
     return badge_num, rank_name, division, tier
 
 
+# ── Rank Badges & RP (Matchmaking Update) ──────────────────────────────────
+# As of the "Matchmaking Update" (2026-07-30) patch, the game no longer ships
+# per-subrank badge art. /v1/assets/ranks now serves ONE large/large_webp
+# image per tier (Obscurus, Initiate, ... Eternus), plus a new chalk/chalk_webp
+# variant. The old /v1/players/{id}/rank-predict endpoint was renamed to
+# /v1/players/{id}/rank.
+
+RANK_ASSETS_CACHE_FILE = BASE_DIR / 'data' / 'rank_assets_cache.json'
+RANK_ASSETS_TTL_SECONDS = 24 * 60 * 60  # badge art is static between patches
+
+
+def _load_rank_assets_cache() -> dict | None:
+    try:
+        if RANK_ASSETS_CACHE_FILE.exists():
+            with open(RANK_ASSETS_CACHE_FILE, 'r', encoding='utf-8') as f:
+                cached = json.load(f)
+            if time.time() - cached.get('_fetched_at', 0) < RANK_ASSETS_TTL_SECONDS:
+                return cached.get('tiers') or None
+    except Exception as e:
+        print(f"Error reading rank assets cache: {e}")
+    return None
+
+
+def _save_rank_assets_cache(tiers: dict):
+    try:
+        RANK_ASSETS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(RANK_ASSETS_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'_fetched_at': time.time(), 'tiers': tiers}, f)
+    except Exception as e:
+        print(f"Error writing rank assets cache: {e}")
+
+
+async def get_rank_tier_assets() -> dict:
+    """
+    Fetches badge art from GET /v1/assets/ranks and returns it keyed by tier
+    display name, e.g.:
+        {"Obscurus": {"large_webp": "...", "large": "...", "chalk_webp": "...", "chalk": "..."}, ...}
+
+    Cached to disk for RANK_ASSETS_TTL_SECONDS so we don't re-fetch on every
+    page load. NOTE: the published docs snapshot didn't include a concrete
+    example payload for this endpoint, so the parsing below is deliberately
+    defensive (tries a few plausible key names). If tiers comes back empty,
+    check the printed raw payload in the logs and adjust the key names here.
+    """
+    cached = _load_rank_assets_cache()
+    if cached:
+        return cached
+
+    tiers: dict = {}
+    data = None
+    try:
+        async with AsyncSession(impersonate="chrome") as session:
+            data = await fetch_async_json("https://api.deadlock-api.com/v1/assets/ranks", session)
+
+        if isinstance(data, list):
+            entries = data
+        elif isinstance(data, dict):
+            entries = data.get("ranks") or data.get("data") or list(data.values())
+        else:
+            entries = []
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = (
+                entry.get("name")
+                or entry.get("tier_name")
+                or entry.get("rank_name")
+                or entry.get("tier")
+                or ""
+            )
+            images = entry.get("images") if isinstance(entry.get("images"), dict) else entry
+            large_webp = images.get("large_webp") or entry.get("image_large_webp")
+            large = images.get("large") or entry.get("image_large") or large_webp
+            chalk_webp = images.get("chalk_webp") or entry.get("image_chalk_webp")
+            chalk = images.get("chalk") or entry.get("image_chalk") or chalk_webp
+
+            if name and (large_webp or large):
+                tiers[str(name)] = {
+                    "large_webp": large_webp or large,
+                    "large": large or large_webp,
+                    "chalk_webp": chalk_webp or chalk,
+                    "chalk": chalk or chalk_webp,
+                }
+
+        if tiers:
+            _save_rank_assets_cache(tiers)
+        else:
+            print(f"⚠️ /v1/assets/ranks returned no usable tier art. Raw payload (truncated): {str(data)[:500]}")
+
+    except Exception as e:
+        print(f"Error fetching rank tier assets: {e}")
+
+    return tiers
+
+
+async def get_ranked_seasons() -> list:
+    """Fetches GET /v1/assets/ranked-seasons (season id/name/date ranges)."""
+    try:
+        async with AsyncSession(impersonate="chrome") as session:
+            data = await fetch_async_json("https://api.deadlock-api.com/v1/assets/ranked-seasons", session)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        print(f"Error fetching ranked seasons: {e}")
+        return []
+
+
+async def get_player_rank(steamid3: str) -> dict | None:
+    """
+    Fetches the player's current rank via GET /v1/players/{account_id}/rank.
+
+    Per the current API docs, this returns the rank the player ended their
+    latest *ranked* match at (the rank they entered that match with plus the
+    progress it awarded). A subrank spans 1000 progress points, so a single
+    match can move the badge.
+
+    Response schema:
+        {
+          "badge": int,        # combined badge number (0 = Obscurus/unranked)
+          "rank": int,         # tier index, 0 = Obscurus ... 11 = Eternus
+          "subrank": int,      # 1-6 within the tier (0 for Obscurus)
+          "last_match": {      # null while unset (no ranked match yet /
+                                # still in placement), otherwise Valve's
+                                # rank metadata for that match:
+            "match_id": int,
+            "start_time": int,
+            "player_rank_initial_display_rank": int,
+            "player_rank_initial_flat_progress": int | None,
+            "player_rank_final_flat_progress": int | None,
+            "player_rank_desired_progress_change": int | None,
+            "player_rank_initial_calibration_games": int | None,
+            "player_rank_initial_demotion_protection_games": int | None,
+            "player_rank_consumed_demotion_protection": bool | None,
+            "player_rank_initial_win_streak": int | None,
+          } | None
+        }
+
+    Only ranked matches carry a rank; it stays unset (badge/rank/subrank
+    all 0) while the player is in placement games or hasn't finished one.
+    """
+    try:
+        async with AsyncSession(impersonate="chrome") as session:
+            url = f"https://api.deadlock-api.com/v1/players/{steamid3}/rank"
+            data = await fetch_async_json(url, session)
+    except Exception as e:
+        print(f"Error fetching player rank for {steamid3}: {e}")
+        return None
+
+    if not data:
+        return None
+
+    if isinstance(data, list):
+        data = data[0] if data else None
+    if not isinstance(data, dict):
+        return None
+
+    badge = data.get("badge") or 0
+    rank = data.get("rank") or 0
+    subrank = data.get("subrank") or 0
+    last_match = data.get("last_match")
+
+    return {
+        "badge": int(badge),
+        "rank": int(rank),
+        "subrank": int(subrank),
+        "last_match": last_match if isinstance(last_match, dict) else None,
+    }
+
+
+def get_player_rank_image_url(steamid3: str, fmt: str = "webp") -> str:
+    """
+    Builds the direct URL for GET /v1/players/{account_id}/rank/image.
+
+    This endpoint returns the rank badge image binary directly (with the
+    player's I-VI division numeral already drawn on it), so there's no need
+    to fetch/cache it server-side -- it can be dropped straight into an
+    <img src="..."> tag. Players with no rank yet or still in placement get
+    the plain tier badge automatically.
+    """
+    fmt = "webp" if fmt not in ("png", "webp") else fmt
+    return f"https://api.deadlock-api.com/v1/players/{steamid3}/rank/image?format={fmt}"
+
+
 def calculate_rank_base_pr(badge_num: int) -> float:
     """
     Scales Base PR from 1,000 (Initiate 1) up to 18,500 (Eternus 6).
@@ -416,20 +685,44 @@ def calculate_rank_base_pr(badge_num: int) -> float:
         return 1200.0  # Default unranked baseline
 
     badge_norm = (badge_num - 1) / 65.0  # 0.0 to 1.0
-    base_pr = 1000.0 + (17500.0 * (badge_norm ** 1.35))
+    base_pr = 1000.0 + (10500.0 * (badge_norm ** 1.35))
     return base_pr
 
 
-def calcPr(player_stats, steamid3=None, player_rank=None, cached_rank=None, custom_config=None, debug=True):
+async def get_global_player_metrics() -> dict | None:
+    """Fetches global player stat metrics for Elo-like PR baseline comparison."""
+    try:
+        if METRICS_CACHE_FILE.exists():
+            with open(METRICS_CACHE_FILE, 'r', encoding='utf-8') as f:
+                cached = json.load(f)
+            if time.time() - cached.get('_fetched_at', 0) < METRICS_TTL_SECONDS:
+                return cached.get('metrics')
+    except Exception as e:
+        print(f"Error reading metrics cache: {e}")
+
+    try:
+        async with AsyncSession(impersonate="chrome") as session:
+            data = await fetch_async_json("https://api.deadlock-api.com/v1/analytics/player-stats/metrics", session)
+            print(f"Fetched global metrics")
+            if data:
+                METRICS_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+                with open(METRICS_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump({'_fetched_at': time.time(), 'metrics': data}, f)
+                return data
+    except Exception as e:
+        print(f"Error fetching global metrics: {e}")
+    return None
+
+# Update the calcPr signature to accept global_metrics
+def calcPr(player_stats, steamid3=None, player_rank=None, cached_rank=None, custom_config=None, global_metrics=None, debug=True):
     # =========================================================================
     # 1. TUNING CONFIGURATION & HYPERPARAMETERS
     # =========================================================================
     DEFAULT_CONFIG = {
-        "RANK_BLEND_WEIGHT": 0.35,   # 35% rank anchor, 65% stat performance
-        "PERF_WEIGHT_MIN": 0.60,     # Multiplier for terrible stats
-        "PERF_WEIGHT_MAX": 1.45,     # Multiplier for elite stats
-        "PERF_SENSITIVITY": 1.50,    
-        "STAT_DIMINISHING_RETURN": 1.2, 
+        "RANK_BLEND_WEIGHT": 0.40,   # 40% rank anchor, 60% stat performance vs Global
+        "PERF_WEIGHT_MIN": 0.50,     # Multiplier floor for terrible stats
+        "PERF_WEIGHT_MAX": 1.60,     # Multiplier ceiling for elite stats
+        "PERF_SENSITIVITY": 1.20,    # Scaling speed of the Z-score curve
         "CONFIDENCE_K": 10.0,        
         "RECENCY_HALF_DAYS": 90.0,   
     }
@@ -438,71 +731,72 @@ def calcPr(player_stats, steamid3=None, player_rank=None, cached_rank=None, cust
     if custom_config and isinstance(custom_config, dict):
         cfg.update(custom_config)
 
-    # Reference bounds for normalization (Poor, Great)
+    # We map our internal stat names to the likely metric keys returned by the endpoint
+    STAT_MAPPINGS = {
+        "kills_per_match":      ("kills", False),     # (metric_key, is_inverted)
+        "deaths_per_match":     ("deaths", True),     # Deaths are inverted (fewer is better)
+        "assists_per_match":    ("assists", False),
+        "damage_per_match":     ("hero_damage", False), 
+        "obj_damage_per_match": ("objective_damage", False),
+        "networth_per_match":   ("net_worth", False),
+    }
+    
+    # Fallback REFS if the metric endpoint fails or misses a key
     REFS = {
-        "win_rate":              (0.35,  0.68),
-        "kills_per_min":         (0.08,  0.32),
-        "deaths_per_min":        (0.22,  0.05), # Inverted
-        "assists_per_min":       (0.08,  0.28),
-        "networth_per_min":      (250,   1400),
-        "accuracy":              (0.25,  0.55),
-        "crit_shot_rate":        (0.03,  0.16),
-        "ending_level":          (18,    36),
-        "damage_per_match":      (6000,  48000),
-        "obj_damage_per_match":  (1000,  25000),
-        "kills_per_match":       (2.0,   16.0),
-        "networth_per_match":    (6000,  60000),
+        "kills_per_match":       (4.0, 12.0),
+        "deaths_per_match":      (10.0, 3.0), # Inverted fallback
+        "assists_per_match":     (3.0, 10.0),
+        "damage_per_match":      (10000, 35000),
+        "obj_damage_per_match":  (2000, 12000),
+        "networth_per_match":    (10000, 35000),
     }
 
     DEFAULT_WEIGHTS = {
-        "win_rate":              2.0,
-        "kills_per_min":         1.4,
-        "deaths_per_min":        2.0,
-        "assists_per_min":       1.2,
-        "networth_per_min":      1.5,
-        "accuracy":              0.8,
-        "crit_shot_rate":        0.7,
-        "ending_level":          0.6,
+        "kills_per_match":       1.5,
+        "deaths_per_match":      2.0,
+        "assists_per_match":     1.2,
         "damage_per_match":      1.8,
         "obj_damage_per_match":  1.6,
-        "kills_per_match":       1.5,
-        "networth_per_match":    1.4,
+        "networth_per_match":    1.5,
     }
 
     now_ts = time.time()
     decay_seconds = cfg["RECENCY_HALF_DAYS"] * 24 * 3600
 
     def recency_weight(last_played_ts):
-        if not last_played_ts:
-            return 0.8
+        if not last_played_ts: return 0.8
         try:
             age = max(0.0, now_ts - float(last_played_ts))
             return 0.5 ** (age / decay_seconds)
-        except Exception:
-            return 0.8
+        except Exception: return 0.8
 
     def match_confidence(matches):
-        if matches <= 0:
-            return 0.0
-        return matches / (matches + cfg["CONFIDENCE_K"])
+        return matches / (matches + cfg["CONFIDENCE_K"]) if matches > 0 else 0.0
 
-    def normalized_stat_with_diminishing_returns(val, poor, great, is_inverted=False):
-        if poor == great:
-            return 0.5
+    def calculate_stat_z_score(val, metric_key, is_inverted):
+        """Calculates Z-score (standard deviations from average) using global metrics."""
+        if global_metrics and metric_key in global_metrics:
+            avg = global_metrics[metric_key].get("avg")
+            std = global_metrics[metric_key].get("std")
+            if avg is not None and std and std > 0:
+                z = (val - avg) / std
+                return -z if is_inverted else z
+                
+        # Fallback to linear mapping based on REFS
+        poor, great = REFS.get(metric_key, (0, 1))
+        if poor == great: return 0.0
+        
+        # Approximate Z-score range (-2 to +2) from min/max bounds
         if is_inverted:
             norm = (poor - val) / (poor - great)
         else:
             norm = (val - poor) / (great - poor)
-        norm = max(0.0, norm)
-        k = cfg["STAT_DIMINISHING_RETURN"]
-        saturated = 1.0 - math.exp(-k * norm)
-        saturation_normalizer = 1.0 - math.exp(-k)
-        return saturated / saturation_normalizer if saturation_normalizer > 0 else norm
+        return (max(0.0, min(1.0, norm)) - 0.5) * 4.0 # Map 0..1 to -2..+2
 
-    def calculate_performance_multiplier(raw_score):
-        centered_score = raw_score - 0.5
-        expanded_score = centered_score * (1.0 + abs(centered_score))
-        curved_offset = math.tanh(cfg["PERF_SENSITIVITY"] * expanded_score)
+    def calculate_performance_multiplier_from_z(z_score):
+        """Maps an average Z-score to a multiplier using a smooth curve (tanh)."""
+        # A Z-score of 0 (average) yields 1.0. High positive Z-scores yield PERF_WEIGHT_MAX.
+        curved_offset = math.tanh(cfg["PERF_SENSITIVITY"] * z_score * 0.5)
         
         if curved_offset >= 0:
             mult = 1.0 + curved_offset * (cfg["PERF_WEIGHT_MAX"] - 1.0)
@@ -510,24 +804,26 @@ def calcPr(player_stats, steamid3=None, player_rank=None, cached_rank=None, cust
             mult = 1.0 + curved_offset * (1.0 - cfg["PERF_WEIGHT_MIN"])
         return mult
 
+    def z_to_percentile(z_score):
+        """Converts a Z-score into a 0-100 percentile via the standard normal
+        CDF, i.e. 'you perform better than X% of the reference population'
+        for that stat. Same z-scores already computed for the PR blend are
+        reused here, so this is free — no extra global data needed."""
+        cdf = 0.5 * (1.0 + math.erf(z_score / math.sqrt(2)))
+        return max(0.1, min(99.9, round(cdf * 100, 1)))
+
     # Handle input data structure parsing
-    if isinstance(player_stats, dict):
-        heroes_list = player_stats.get("heroes", [player_stats])
-        if player_rank is None:
-            player_rank = (
-                player_stats.get("rank") 
-                or player_stats.get("badge") 
-                or player_stats.get("valve_rank_data") 
-                or player_stats.get("ranked_mmr") 
-                or cached_rank
-                or 0
-            )
-    else:
-        heroes_list = list(player_stats or [])
-        if player_rank is None:
+    heroes_list = player_stats.get("heroes", [player_stats]) if isinstance(player_stats, dict) else list(player_stats or [])
+    
+    if player_rank is None:
+        if isinstance(player_stats, dict):
+            player_rank = player_stats.get("valve_rank_data") or cached_rank or 0
+        else:
             player_rank = cached_rank or 0
 
     badge_num, rank_name, div, tier = resolve_valve_rank(player_rank)
+    
+    # Calculate base expected rating from rank
     rank_base_pr = calculate_rank_base_pr(badge_num)
 
     hero_results = []
@@ -537,7 +833,6 @@ def calcPr(player_stats, steamid3=None, player_rank=None, cached_rank=None, cust
     if debug:
         print("\n" + "="*80)
         print(f" [DEBUG CALCPR] PLAYER RATING CALCULATION")
-        print("="*80)
         print(f" [VALVE RANK] Resolved Rank: {rank_name} | Badge #: {badge_num} | Base PR: {rank_base_pr:.1f}")
         print("-" * 80)
 
@@ -546,138 +841,124 @@ def calcPr(player_stats, steamid3=None, player_rank=None, cached_rank=None, cust
         hero_id = h.get("hero_id")
         hero_name = HEROS.get(hero_id, f"Hero {hero_id}")
 
-        if matches <= 0:
-            continue
-
-        # Use the player_rank already passed into calcPr
-        current_hero_rank = player_rank
-
-        wins = h.get("wins", 0) or 0
-        win_rate = wins / matches if matches > 0 else 0.0
-
-        # Raw values extraction
-        kpm = float(h.get("kills_per_min") or 0.0)
-        dpm = float(h.get("deaths_per_min") or 0.0)
-        apm = float(h.get("assists_per_min") or 0.0)
-        nwpm = float(h.get("networth_per_min") or 0.0)
-        acc = float(h.get("accuracy") or 0.0)
-        crit = float(h.get("crit_shot_rate") or 0.0)
-        lvl = float(h.get("ending_level") or 0.0)
+        if matches <= 0: continue
 
         damage_match = float(h.get("damage_per_match") or (h.get("total_damage", 0) / max(1, matches)))
         obj_damage_match = float(h.get("obj_damage_per_match") or h.get("objective_damage_per_match") or (h.get("total_objective_damage", 0) / max(1, matches)))
         kills_match = float(h.get("kills_per_match") or (h.get("total_kills", 0) / max(1, matches)))
+        deaths_match = float((h.get("total_deaths") or h.get("deaths", 0)) / max(1, matches))
+        assists_match = float((h.get("total_assists") or h.get("assists", 0)) / max(1, matches))
         nw_match = float(h.get("networth_per_match") or (h.get("total_networth", 0) / max(1, matches)))
 
-        # Handle unindexed matches (where damage/objective damage stats are 0)
         active_weights = DEFAULT_WEIGHTS.copy()
-        if damage_match <= 0:
-            active_weights["damage_per_match"] = 0.0
-        if obj_damage_match <= 0:
-            active_weights["obj_damage_per_match"] = 0.0
-
+        if damage_match <= 0: active_weights["damage_per_match"] = 0.0
+        if obj_damage_match <= 0: active_weights["obj_damage_per_match"] = 0.0
+        
         total_active_weight = sum(active_weights.values())
 
         raw_stats = {
-            "win_rate":              (win_rate, f"{win_rate*100:.1f}%"),
-            "kills_per_min":         (kpm, f"{kpm:.2f}"),
-            "deaths_per_min":        (dpm, f"{dpm:.2f}"),
-            "assists_per_min":       (apm, f"{apm:.2f}"),
-            "networth_per_min":      (nwpm, f"{nwpm:.0f}"),
-            "accuracy":              (acc, f"{acc*100:.1f}%"),
-            "crit_shot_rate":        (crit, f"{crit*100:.1f}%"),
-            "ending_level":          (lvl, f"{lvl:.1f}"),
-            "damage_per_match":      (damage_match, f"{damage_match:.0f}" if damage_match > 0 else "N/A (Unindexed)"),
-            "obj_damage_per_match":  (obj_damage_match, f"{obj_damage_match:.0f}" if obj_damage_match > 0 else "N/A (Unindexed)"),
             "kills_per_match":       (kills_match, f"{kills_match:.1f}"),
+            "deaths_per_match":      (deaths_match, f"{deaths_match:.1f}"),
+            "assists_per_match":     (assists_match, f"{assists_match:.1f}"),
+            "damage_per_match":      (damage_match, f"{damage_match:.0f}" if damage_match > 0 else "N/A"),
+            "obj_damage_per_match":  (obj_damage_match, f"{obj_damage_match:.0f}" if obj_damage_match > 0 else "N/A"),
             "networth_per_match":    (nw_match, f"{nw_match:.0f}"),
         }
 
-        # Scaled scores (0.0 to 1.0)
-        scaled_scores = {}
-        for key in REFS:
-            val = raw_stats[key][0]
-            poor, great = REFS[key]
-            is_inv = (key == "deaths_per_min")
-            scaled_scores[key] = normalized_stat_with_diminishing_returns(val, poor, great, is_inverted=is_inv)
+        # Compute combined Z-Score average
+        weighted_z_sum = 0.0
+        z_scores_debug = {}
+        stat_percentiles = {}
 
-        # Weighted score computation
-        raw_score = sum(active_weights[k] * scaled_scores[k] for k in active_weights) / total_active_weight
+        for stat_key, (val, _) in raw_stats.items():
+            if active_weights[stat_key] > 0:
+                metric_key, is_inverted = STAT_MAPPINGS[stat_key]
+                z_score = calculate_stat_z_score(val, metric_key, is_inverted)
+                weighted_z_sum += z_score * active_weights[stat_key]
+                z_scores_debug[stat_key] = z_score
+                stat_percentiles[stat_key] = z_to_percentile(z_score)
 
+        overall_hero_z = weighted_z_sum / total_active_weight if total_active_weight > 0 else 0.0
+        hero_percentile = z_to_percentile(overall_hero_z)
+        
         rec_w = recency_weight(h.get("last_played"))
         conf_w = match_confidence(matches)
         weight = conf_w * rec_w
 
-        perf_mult = calculate_performance_multiplier(raw_score)
+        # Map Z-Score to Multiplier
+        perf_mult = calculate_performance_multiplier_from_z(overall_hero_z)
+        
+        # Rank gives a base expectation, stats determine where they fall against that expectation 
         performance_driven_pr = rank_base_pr * perf_mult
         
         blend_weight = cfg["RANK_BLEND_WEIGHT"]
-        hero_pr = (rank_base_pr * blend_weight) + (performance_driven_pr * (1.0 - blend_weight))
+        
+        # Slight PR bump for badge level
+        badge_boost = 1.0 + (badge_num / 1000.0) 
+        
+        hero_pr = ((rank_base_pr * blend_weight) + (performance_driven_pr * (1.0 - blend_weight))) * badge_boost
 
         weighted_pr_sum += hero_pr * weight
         total_weight += weight
 
         if debug:
             print(f" [HERO]: {hero_name} (ID: {hero_id}) | Matches: {matches}")
-            print(f"  FULL STATS & SCALING:")
-            for k, (raw_val, display_str) in raw_stats.items():
-                w = active_weights[k]
-                sc = scaled_scores[k]
-                status = f"[W: {w:.1f}] -> Scaled Score: {sc:.4f}" if w > 0 else "[OMITTED - Missing Data]"
-                print(f"    - {k:<22}: Raw = {display_str:<15} {status}")
-            
-            print(f"  CALC BREAKDOWN:")
-            print(f"    - Base Rank PR        : {rank_base_pr:.1f}")
-            print(f"    - Raw Performance Score: {raw_score:.4f} / 1.0")
-            print(f"    - Performance Multiplier: {perf_mult:.3f}x")
-            print(f"    - Perf-Adjusted PR     : {performance_driven_pr:.1f}")
-            print(f"    - Final Hero PR        : {hero_pr:.1f} (Confidence/Recency Weight: {weight:.3f})")
-            print("-" * 80)
+            print(f"    - Avg Z-Score (vs Global) : {overall_hero_z:+.2f}")
+            print(f"    - Performance Multiplier  : {perf_mult:.3f}x")
+            print(f"    - Final Hero PR           : {hero_pr:.1f}")
 
         hero_results.append({
             "hero_id":              hero_id,
             "hero_name":            hero_name,
             "matches_played":       matches,
-            "score":                round(raw_score, 4),
+            "overall_z_score":      round(overall_hero_z, 2),
+            "percentile":           hero_percentile,
+            "stat_percentiles":     stat_percentiles,
+            "stat_z_scores":        {k: round(v, 3) for k, v in z_scores_debug.items()},
             "perf_mult":            round(perf_mult, 3),
             "weight":               round(weight, 4),
-            "win_rate":             round(win_rate, 4),
+            "win_rate":             round((h.get("wins", 0) / matches) if matches > 0 else 0.0, 4),
             "hero_pr":              round(hero_pr, 1),
-            
-            # --- MODIFIED: Exporting Total Stats instead of Per Minute ---
             "total_kills":          int(h.get("total_kills") or h.get("kills") or 0),
             "total_deaths":         int(h.get("total_deaths") or h.get("deaths") or 0),
             "total_assists":        int(h.get("total_assists") or h.get("assists") or 0),
             "total_networth":       int(h.get("total_networth") or h.get("networth") or 0),
-            
             "damage_per_match":     round(damage_match, 1),
             "obj_damage_per_match": round(obj_damage_match, 1),
-            
-            # --- MODIFIED: Accuracy and Headshot Accuracy explicitly declared ---
-            "accuracy":             round(acc, 4), 
-            "headshot_acc":         round(crit, 4),  # Deadlock API treats headshots as crit_shot_rate
-            "crit_shot_rate":       round(crit, 4),  # Preserved in case older templates rely on it
-            "ending_level":         round(lvl, 1),
         })
 
-    if total_weight > 0:
-        overall_pr = weighted_pr_sum / total_weight
-    else:
-        overall_pr = rank_base_pr
+    overall_pr = (weighted_pr_sum / total_weight) if total_weight > 0 else rank_base_pr
 
-    # Calculate final badge placement based on overall PR
+    # Account-level percentile: same recency/confidence weighting used for
+    # overall_pr, applied to each hero's z-score - both the overall blend and
+    # each individual stat - so the account view is a fair aggregate across
+    # everything played, not just your best hero.
+    account_stat_keys = list(STAT_MAPPINGS.keys())
+    account_weighted_z = 0.0
+    account_weighted_stat_z = {k: 0.0 for k in account_stat_keys}
+    account_stat_weight = {k: 0.0 for k in account_stat_keys}
+
+    for hr in hero_results:
+        w = hr["weight"]
+        account_weighted_z += hr["overall_z_score"] * w
+        for stat_key, z_val in hr.get("stat_z_scores", {}).items():
+            account_weighted_stat_z[stat_key] += z_val * w
+            account_stat_weight[stat_key] += w
+
+    overall_percentile = z_to_percentile(account_weighted_z / total_weight) if total_weight > 0 else 50.0
+    account_stat_percentiles = {
+        stat_key: z_to_percentile(account_weighted_stat_z[stat_key] / account_stat_weight[stat_key])
+        for stat_key in account_stat_keys
+        if account_stat_weight[stat_key] > 0
+    }
+
     rank_index = int(math.floor((overall_pr - 1000.0) / 269.0)) if overall_pr > 1000.0 else 0
-    rank_index = max(0, min(65, rank_index))
-    calculated_badge = rank_index + 1
-
-    if debug:
-        print(f" [SUMMARY RESULT]")
-        print(f"  - Final Calculated Overall PR: {overall_pr:.1f}")
-        print(f"  - Calculated Badge Tier     : {calculated_badge})")
-        print("="*80 + "\n")
+    calculated_badge = max(0, min(65, rank_index)) + 1
 
     return {
-        "overall_pr": round(overall_pr, 1),
+        "overall_pr":              round(overall_pr, 1),
+        "overall_percentile":      overall_percentile,
+        "stat_percentiles":        account_stat_percentiles,
         "badge":      int(calculated_badge),
         "rank_index": int(rank_index),
         "rank_name":  rank_name,
@@ -915,6 +1196,78 @@ def build_hero_mastery_stats(match_history: list, hero_id: int, hero_name: str) 
     for it in signature_items:
         it["pick_rate"] = round((it["count"] / matches_played) * 100) if matches_played else 0
 
+    # ── Career Totals ────────────────────────────────────────────────────
+    # A "Year in Review"-style cumulative rollup across every tracked match
+    # on this hero -- straight sums of stats this app already stores per
+    # match, no invented numbers.
+    total_kills = 0
+    total_assists = 0
+    total_deaths = 0
+    total_damage = 0.0
+    total_objective_damage = 0.0
+    total_networth = 0.0
+    total_duration_s = 0.0
+
+    for hmatch in hero_matches:
+        total_kills += int(_mastery_num(hmatch, "kills", "player_kills") or 0)
+        total_assists += int(_mastery_num(hmatch, "assists", "player_assists") or 0)
+        total_deaths += int(_mastery_num(hmatch, "deaths", "player_deaths") or 0)
+        total_damage += _mastery_num(hmatch, "damage", "hero_damage") or 0
+        total_objective_damage += _mastery_num(hmatch, "objective_damage", "obj_damage") or 0
+        total_networth += _mastery_num(hmatch, "net_worth", "networth") or 0
+        total_duration_s += _mastery_num(hmatch, "match_duration_s", "duration_s") or 0
+
+    total_minutes = (total_duration_s / 60) if total_duration_s else 0
+
+    career_totals = {
+        "kills": total_kills,
+        "assists": total_assists,
+        "deaths": total_deaths,
+        "damage": int(total_damage),
+        "objective_damage": int(total_objective_damage),
+        "souls_earned": int(total_networth),
+        "hours_played": round(total_duration_s / 3600, 1),
+        "kda": round((total_kills + total_assists) / max(1, total_deaths), 2),
+    }
+
+    # ── Playstyle Radar ──────────────────────────────────────────────────
+    # A 4-axis fingerprint (Combat / Farm / Objective / Survival) built from
+    # this hero's own per-minute rates. Like mastery_score, this is a
+    # house-made flavor visualization for readability, not a claim about
+    # where the player ranks against the wider playerbase.
+    if total_minutes > 0:
+        combat_per_min = (total_kills + total_assists) / total_minutes
+        farm_per_min = total_networth / total_minutes
+        objective_per_min = total_objective_damage / total_minutes
+        deaths_per_min = total_deaths / total_minutes
+    else:
+        combat_per_min = farm_per_min = objective_per_min = deaths_per_min = 0
+
+    def _scale(value, cap):
+        return max(0, min(100, round((value / cap) * 100))) if cap else 0
+
+    playstyle_radar = {
+        "combat": _scale(combat_per_min, 0.8),
+        "farm": _scale(farm_per_min, 35),
+        "objective": _scale(objective_per_min, 120),
+        "survival": max(0, min(100, round(100 - _scale(deaths_per_min, 0.22)))),
+    }
+
+    # Pre-compute the SVG polygon points for the 4-axis radar (N=Combat,
+    # E=Farm, S=Objective, W=Survival) around a 200x200 viewBox, center
+    # (100,100), so the template can drop it straight into an <svg> with no
+    # Jinja-side trigonometry.
+    _radar_cx, _radar_cy, _radar_max_r = 100, 100, 80
+    _radar_axes = [("combat", 0), ("farm", 90), ("objective", 180), ("survival", 270)]
+    _radar_points = []
+    for axis_key, axis_angle in _radar_axes:
+        r = _radar_max_r * (playstyle_radar[axis_key] / 100)
+        rad = math.radians(axis_angle)
+        px = round(_radar_cx + r * math.sin(rad), 1)
+        py = round(_radar_cy - r * math.cos(rad), 1)
+        _radar_points.append((px, py))
+    playstyle_radar["svg_polygon"] = " ".join(f"{px},{py}" for px, py in _radar_points)
+
     return {
         "hero_id": hero_id,
         "hero_name": hero_name,
@@ -930,7 +1283,161 @@ def build_hero_mastery_stats(match_history: list, hero_id: int, hero_name: str) 
         "longest_loss_streak": longest_loss_streak,
         "records": records,
         "signature_items": signature_items,
+        "career_totals": career_totals,
+        "playstyle_radar": playstyle_radar,
         "accent_color": get_hero_accent_color(hero_name),
         "bg_image": get_hero_background_url(hero_name),
         "name_logo": get_hero_name_logo_url(hero_name),
+    }
+
+
+# LIVE DATA
+
+async def get_active_matches(limit: int = 25) -> list:
+    """
+    Fetches active/live matches from https://api.deadlock-api.com/v1/matches/active
+    and enriches them with team net worth calculations, momentum, and win probabilities.
+    """
+    try:
+        async with AsyncSession(impersonate="chrome") as session:
+            url = "https://api.deadlock-api.com/v1/matches/active"
+            data = await fetch_async_json(url, session)
+            
+            if not data or not isinstance(data, list):
+                return []
+                
+            active_matches = []
+            for raw_match in data[:limit]:
+                processed = calculate_live_match_prediction(raw_match)
+                if processed:
+                    active_matches.append(processed)
+                    
+            # Sort primarily by live spectator count
+            return sorted(active_matches, key=lambda x: x.get("spectators", 0), reverse=True)
+            
+    except Exception as e:
+        print(f"Error fetching active matches: {e}")
+        return []
+
+
+def calculate_live_match_prediction(raw_match: dict) -> dict:
+    """
+    Parses active telemetry matching the /v1/matches/active schema to compute
+    win probability %, net worth advantage, momentum status, and roster structure.
+    """
+    # Primary match/lobby identification
+    match_id = raw_match.get("lobby_id") or raw_match.get("match_id") or raw_match.get("id")
+    if not match_id:
+        return None
+
+    # Spectator Count & Mode Descriptors
+    spectators = raw_match.get("spectators") or 0
+    match_mode = raw_match.get("match_mode_parsed") or "Unranked"
+    game_mode = raw_match.get("game_mode_parsed") or "Standard"
+
+    # Match Clock (Handles duration_s being null during pre-game/lobby setup)
+    duration_s = raw_match.get("duration_s")
+    if duration_s is None:
+        time_display = "Pre-Game"
+        duration_s = 0
+    else:
+        mins = int(duration_s) // 60
+        secs = int(duration_s) % 60
+        time_display = f"{mins:02d}:{secs:02d}"
+
+    # Team Net Worth values direct from top-level keys
+    team0_nw = raw_match.get("net_worth_team_0") or raw_match.get("team0_net_worth") or 0
+    team1_nw = raw_match.get("net_worth_team_1") or raw_match.get("team1_net_worth") or 0
+
+    # Team Rosters
+    players = raw_match.get("players") or []
+    team0_players = []
+    team1_players = []
+
+    for p in players:
+        team_id = p.get("team") or p.get("player_team") or 0
+        hero_id = p.get("hero_id")
+        hero_name = HEROS.get(hero_id, "Unknown Hero") if hero_id else "Unknown Hero"
+        p_nw = p.get("net_worth", 0)
+        
+        p_data = {
+            "account_id": p.get("account_id"),
+            "hero_id": hero_id,
+            "hero_name": hero_name,
+            "net_worth": p_nw,
+            "kills": p.get("kills", 0),
+            "deaths": p.get("deaths", 0),
+            "assists": p.get("assists", 0),
+            "level": p.get("level", 1),
+            "abandoned": p.get("abandoned")
+        }
+        
+        if team_id == 0 or str(team_id).lower() in ("amber", "0"):
+            team0_players.append(p_data)
+        else:
+            team1_players.append(p_data)
+
+    # Fallback to summing player net worths if top-level keys were missing/zero
+    if team0_nw == 0 and team0_players:
+        team0_nw = sum(p["net_worth"] for p in team0_players)
+    if team1_nw == 0 and team1_players:
+        team1_nw = sum(p["net_worth"] for p in team1_players)
+
+    # Net Worth Delta calculation (Positive = Amber lead, Negative = Sapphire lead)
+    nw_delta = team0_nw - team1_nw
+    abs_delta = abs(nw_delta)
+    
+    # Prediction Math: Adjusts sensitivity based on match time
+    time_factor = max(0.5, min(2.0, duration_s / 1200)) if duration_s > 0 else 0.5
+    scaled_delta = nw_delta / (5000 * time_factor)
+    
+    amber_win_prob = 1.0 / (1.0 + math.exp(-scaled_delta))
+    amber_win_pct = round(amber_win_prob * 100, 1)
+    sapphire_win_pct = round(100.0 - amber_win_pct, 1)
+
+    # Momentum Assessment
+    if abs_delta < 2000:
+        momentum_status = "Even Game"
+        leading_team = "Tie"
+    elif nw_delta > 0:
+        leading_team = "Amber"
+        if abs_delta > 15000:
+            momentum_status = "Amber Dominating"
+        elif abs_delta > 8000:
+            momentum_status = "Amber High Momentum"
+        else:
+            momentum_status = "Amber Slight Lead"
+    else:
+        leading_team = "Sapphire"
+        if abs_delta > 15000:
+            momentum_status = "Sapphire Dominating"
+        elif abs_delta > 8000:
+            momentum_status = "Sapphire High Momentum"
+        else:
+            momentum_status = "Sapphire Slight Lead"
+
+    return {
+        "match_id": match_id,
+        "lobby_id": match_id,
+        "spectators": spectators,
+        "game_time_s": duration_s,
+        "time_display": time_display,
+        "mode": game_mode,
+        "match_mode": match_mode,
+        "team0": {
+            "name": "Amber",
+            "net_worth": team0_nw,
+            "win_prediction": amber_win_pct,
+            "players": team0_players
+        },
+        "team1": {
+            "name": "Sapphire",
+            "net_worth": team1_nw,
+            "win_prediction": sapphire_win_pct,
+            "players": team1_players
+        },
+        "lead_team": leading_team,
+        "net_worth_delta": nw_delta,
+        "abs_net_worth_delta": abs_delta,
+        "momentum_status": momentum_status
     }
